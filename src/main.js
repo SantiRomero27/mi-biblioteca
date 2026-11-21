@@ -8,7 +8,8 @@ import './styles/pdf-text-layer.css'
 import { renderLibrary } from './library.js'
 import { renderReader } from './reader/reader-view.js'
 import { initSync } from './sync.js'
-import { isNative } from './native.js'
+import { isNative, setOrientation } from './native.js'
+import { loadSettings } from './settings.js'
 
 const root = document.getElementById('app')
 let cleanup = null
@@ -30,6 +31,7 @@ if (isNative) document.documentElement.classList.add('is-native')
 window.addEventListener('hashchange', route)
 initSync()
 route()
+loadSettings().then(s => { if (s.orientation && s.orientation !== 'auto') setOrientation(s.orientation) })
 
 // Pedir almacenamiento persistente para que el navegador no borre los libros
 navigator.storage?.persist?.()

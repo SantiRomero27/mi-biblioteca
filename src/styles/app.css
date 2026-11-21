@@ -400,12 +400,13 @@ button { background: none; border: 0; padding: 0; cursor: pointer; }
 .trk-tip.is-mark strong { color: var(--accent); }
 
 /* Herramientas rápidas */
-.rd-tools { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 4px auto 0; max-width: 560px; }
-.tool { display: inline-grid; place-items: center; min-width: 40px; height: 38px; border-radius: 10px; color: #fff; opacity: .9; }
+.rd-tools { display: flex; align-items: center; justify-content: space-between; gap: 2px; margin: 4px auto 0; max-width: 600px; }
+.tool { display: inline-grid; place-items: center; min-width: 36px; height: 38px; border-radius: 10px; color: #fff; opacity: .9; }
+.tool.is-on { color: var(--accent); opacity: 1; }
 .tool:hover { background: rgba(255,255,255,.1); opacity: 1; }
 .tool .ic { width: 22px; height: 22px; }
 .tool-group { display: flex; align-items: center; background: rgba(255,255,255,.08); border-radius: 12px; padding: 0 2px; }
-.tool-val { min-width: 64px; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tool-val { min-width: 54px; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .reader.chrome-hidden .rd-top { transform: translateY(-100%); opacity: 0; pointer-events: none; }
 .reader.chrome-hidden .rd-bottom { transform: translateY(100%); opacity: 0; pointer-events: none; }
@@ -435,7 +436,10 @@ button { background: none; border: 0; padding: 0; cursor: pointer; }
 .pdf-scroll[data-flow="paginas"] .pdf-page-num { display: none; }
 
 .pdf-page { position: relative; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.18), 0 6px 18px -10px rgba(0,0,0,.3); flex: none; overflow: hidden; }
+.pdf-rot { position: absolute; overflow: hidden; transform-origin: 50% 50%; }
 .pdf-inner { position: absolute; top: 0; }
+/* bloquear el movimiento lateral: solo se desplaza en vertical (y entre páginas con los bordes) */
+.pdf-scroll.lock-x[data-flow="continuo"], .pdf-scroll.lock-x[data-flow="paginas"].is-zoomed { overflow-x: hidden; touch-action: pan-y; }
 .pdf-canvas canvas { position: absolute; top: 0; display: block; opacity: 0; transition: opacity .25s ease; }
 .pdf-canvas canvas.is-in { opacity: 1; }
 .pdf-inner .hl-layer { position: absolute; inset: 0; z-index: 1; pointer-events: none; }

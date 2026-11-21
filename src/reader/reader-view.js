@@ -2,7 +2,8 @@
 // El motor (PDF o EPUB) se encarga de dibujar; esta capa es igual para los dos formatos.
 import { $, $$, h, esc, toast, promptNote, confirmDialog } from '../ui/dom.js'
 import { icon } from '../ui/icons.js'
-import { changes } from '../db.js'
+import { changes, kv } from '../db.js'
+import { setOrientation } from '../native.js'
 import {
   getBook, getFile, loadFileBlob, updateBook, importFile, listAnnotations, addAnnotation,
   updateAnnotation, removeAnnotation, COLORS,
@@ -43,6 +44,9 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
             <button class="tool tool-val" data-tool="reset"></button>
             <button class="tool" data-tool="plus">${icon('add')}</button>
           </div>
+          <button class="tool pdf-only" data-tool="fit"></button>
+          <button class="tool pdf-only" data-tool="lock"></button>
+          <button class="tool pdf-only" data-tool="rotate" title="Girar la página">${icon('rotate')}</button>
           <button class="tool" data-tool="theme" title="Cambiar modo de color">${icon('contrast')}</button>
           <button class="tool" data-tool="fullscreen" title="Pantalla completa">${icon('fullscreen')}</button>
           <button class="tool" data-tool="next-ch" title="Capítulo siguiente">${icon('skipNext')}</button>
@@ -106,7 +110,9 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
   }
 
   // ---------- Motor ----------
+  const rotation = book.format === 'pdf' ? await kv.get(`pdf-giro:${bookId}`, 0) : 0
   const common = {
+    rotation,
     host: stage,
     file: bookFile,
     settings,
@@ -189,12 +195,24 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     toolVal.title = isPdf ? 'Ajustar al ancho' : 'Tamaño por defecto'
     $('[data-tool=minus]', el).title = isPdf ? 'Alejar' : 'Letra más chica'
     $('[data-tool=plus]', el).title = isPdf ? 'Acercar' : 'Letra más grande'
+    if (isPdf) {
+      const fit = engine.fit
+      const fitBtn = $('[data-tool=fit]', el)
+      fitBtn.innerHTML = icon(fit === 'pantalla' ? 'fitScreen' : 'fitWidth')
+      fitBtn.title = fit === 'pantalla' ? 'Ajustado a la pantalla (tocá para ajustar al ancho)' : 'Ajustado al ancho (tocá para ajustar a la pantalla)'
+      const lockBtn = $('[data-tool=lock]', el)
+      lockBtn.innerHTML = icon(settings.pdfLockX ? 'lock' : 'lockOpen')
+      lockBtn.classList.toggle('is-on', !!settings.pdfLockX)
+      lockBtn.title = settings.pdfLockX ? 'Movimiento lateral bloqueado' : 'Bloquear movimiento lateral'
+      $('[data-tool=rotate]', el).classList.toggle('is-on', !!engine.rotation)
+    }
     const fs = !!document.fullscreenElement
     const fsBtn = $('[data-tool=fullscreen]', el)
     fsBtn.innerHTML = icon(fs ? 'fullscreenExit' : 'fullscreen')
     fsBtn.title = fs ? 'Salir de pantalla completa' : 'Pantalla completa'
   }
   if (!document.fullscreenEnabled) $('[data-tool=fullscreen]', el).remove()
+  if (!isPdf) $$('.pdf-only', el).forEach(b => b.remove())
 
   function stepSize(dir) {
     if (isPdf) {
@@ -228,6 +246,20 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     if (t === 'minus') stepSize(-1)
     else if (t === 'plus') stepSize(1)
     else if (t === 'reset') update(isPdf ? { pdfZoom: 1 } : { fontSize: DEFAULT_SETTINGS.fontSize })
+    else if (t === 'fit') {
+      const next = engine.fit === 'pantalla' ? 'ancho' : 'pantalla'
+      update({ pdfFit: next })
+      toast(next === 'pantalla' ? 'Ajustado a la pantalla' : 'Ajustado al ancho')
+    } else if (t === 'lock') {
+      update({ pdfLockX: !settings.pdfLockX })
+      toast(!settings.pdfLockX ? 'Movimiento lateral libre' : 'Movimiento lateral bloqueado')
+    } else if (t === 'rotate') {
+      const r = (engine.rotation + 90) % 360
+      engine.setRotation(r)
+      kv.set(`pdf-giro:${bookId}`, r)
+      const b = $('[data-tool=rotate]', el); b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop')
+      paintTools()
+    }
     else if (t === 'prev-ch') goChapter(-1)
     else if (t === 'next-ch') goChapter(1)
     else if (t === 'theme') {
@@ -565,6 +597,14 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
         ${seg('pdfFlow', [['continuo', 'Continuo'], ['paginas', 'Páginas']])}
       </div>
       <div class="set-group">
+        <div class="set-label">Ajuste</div>
+        ${seg('pdfFit', [['auto', 'Auto'], ['ancho', 'Ancho'], ['pantalla', 'Pantalla']])}
+      </div>
+      <div class="set-group">
+        <div class="set-label">Movimiento lateral</div>
+        ${seg('pdfLockX', [['false', 'Libre'], ['true', 'Bloqueado']])}
+      </div>
+      <div class="set-group">
         <div class="set-label">Páginas dobles (escaneos)</div>
         ${seg('pdfSplit', [['auto', 'Auto'], ['siempre', 'Dividir'], ['nunca', 'Enteras']])}
       </div>
@@ -572,10 +612,25 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
         <div class="set-label">Zoom</div>
         <div class="stepper"><button data-step="pdfZoom" data-d="-0.1">${icon('remove')}</button><span>${Math.round(settings.pdfZoom * 100)} %</span><button data-step="pdfZoom" data-d="0.1">${icon('add')}</button></div>
       </div>
+      <div class="set-group">
+        <div class="set-label">Giro de este libro</div>
+        ${`<div class="seg">${[0, 90, 180, 270].map(r => `<button class="${(engine.rotation || 0) === r ? 'is-active' : ''}" data-rot="${r}">${r}°</button>`).join('')}</div>`}
+      </div>
       <p class="set-hint">Pellizcá o tocá dos veces para acercar. En PDF la tipografía es parte de la página, por eso no se puede cambiar.</p>`}
     `
+    box.insertAdjacentHTML('beforeend', `
+      <div class="set-group">
+        <div class="set-label">Orientación de pantalla</div>
+        ${seg('orientation', [['auto', 'Automática'], ['vertical', 'Vertical'], ['horizontal', 'Horizontal']])}
+      </div>`)
+    $$('[data-rot]', box).forEach(b => b.onclick = () => {
+      const r = Number(b.dataset.rot)
+      engine.setRotation(r)
+      kv.set(`pdf-giro:${bookId}`, r)
+      paintTools(); renderSettings()
+    })
     $$('[data-theme-pick]', box).forEach(b => b.onclick = () => update({ theme: b.dataset.themePick }))
-    $$('.seg button', box).forEach(b => b.onclick = () => {
+    $$('.seg button[data-key]', box).forEach(b => b.onclick = () => {
       const raw = b.dataset.val
       const v = raw === 'true' ? true : raw === 'false' ? false : /^\d+$/.test(raw) ? Number(raw) : raw
       update({ [b.dataset.key]: v })
@@ -601,6 +656,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
 
   async function update(patch) {
     settings = { ...settings, ...patch }
+    if ('orientation' in patch) setOrientation(settings.orientation)
     el.dataset.theme = settings.theme
     await saveSettings(settings)
     await engine.applySettings(settings)

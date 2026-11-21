@@ -54,6 +54,9 @@ export async function createPdfEngine(opts) {
   let flow = settings.pdfFlow || 'continuo'
   let splitMode = settings.pdfSplit || 'auto'
   let zoom = settings.pdfZoom || 1
+  let fitMode = settings.pdfFit || 'auto'      // auto | ancho | pantalla
+  let lockX = !!settings.pdfLockX              // bloquear el movimiento lateral
+  let rotation = opts.rotation || 0            // 0 | 90 | 180 | 270 (por libro)
   let vps = []           // páginas visibles
   const annotations = new Map()
   const pageCache = new Map()
@@ -67,10 +70,10 @@ export async function createPdfEngine(opts) {
       const el = document.createElement('div')
       el.className = 'pdf-page is-loading'
       el.dataset.v = idx
-      el.innerHTML = `<div class="pdf-inner"><div class="pdf-canvas"></div><div class="hl-layer"></div><div class="textLayer"></div></div><span class="pdf-page-num">${idx + 1}</span>`
+      el.innerHTML = `<div class="pdf-rot"><div class="pdf-inner"><div class="pdf-canvas"></div><div class="hl-layer"></div><div class="textLayer"></div></div></div><span class="pdf-page-num">${idx + 1}</span>`
       slot.append(el)
       column.append(slot)
-      return { ...vp, idx, slot, el, inner: el.firstElementChild, canvasBox: el.querySelector('.pdf-canvas'), text: el.querySelector('.textLayer'), hl: el.querySelector('.hl-layer'), state: 'empty', scale: 1 }
+      return { ...vp, idx, slot, el, rot: el.querySelector('.pdf-rot'), inner: el.querySelector('.pdf-inner'), canvasBox: el.querySelector('.pdf-canvas'), text: el.querySelector('.textLayer'), hl: el.querySelector('.hl-layer'), state: 'empty', scale: 1 }
     })
     scroller.dataset.flow = flow
     layout()
@@ -79,23 +82,31 @@ export async function createPdfEngine(opts) {
 
   // ---------- Medidas ----------
   const horizontal = () => flow === 'paginas'
+  const effectiveFit = () => fitMode === 'auto' ? (horizontal() ? 'pantalla' : 'ancho') : fitMode
+  const turned = () => rotation === 90 || rotation === 270
   function layout() {
     const W = scroller.clientWidth, H = scroller.clientHeight
     const gutter = horizontal() ? 16 : 24
     scroller.classList.toggle('is-zoomed', zoom > 1.001)
+    scroller.classList.toggle('lock-x', lockX)
+    scroller.dataset.fit = effectiveFit()
     for (const vp of vps) {
-      const fit = horizontal()
-        ? Math.min((W - gutter) / vp.w, (H - gutter) / vp.h)
-        : Math.min(W - gutter, MAX_WIDTH) / vp.w
+      // medidas tal como se ven (con el giro aplicado)
+      const vw = turned() ? vp.h : vp.w, vh = turned() ? vp.w : vp.h
+      const byWidth = Math.min(W - gutter, MAX_WIDTH) / vw
+      const byScreen = Math.min((W - gutter) / vw, (H - gutter - (horizontal() ? 0 : 24)) / vh)
+      const fit = effectiveFit() === 'pantalla' ? byScreen : byWidth
       const s = fit * zoom
       vp.scale = s
-      const w = vp.w * s, h = vp.h * s
-      Object.assign(vp.el.style, { width: `${w}px`, height: `${h}px` })
+      const w = vp.w * s, h = vp.h * s           // mitad/hoja sin girar
+      const ew = turned() ? h : w, eh = turned() ? w : h
+      Object.assign(vp.el.style, { width: `${ew}px`, height: `${eh}px` })
+      Object.assign(vp.rot.style, { width: `${w}px`, height: `${h}px`, left: `${(ew - w) / 2}px`, top: `${(eh - h) / 2}px`, transform: rotation ? `rotate(${rotation}deg)` : '' })
       Object.assign(vp.inner.style, { width: `${vp.fw * s}px`, height: `${vp.fh * s}px`, left: vp.half === 1 ? `${-w}px` : '0px' })
       vp.inner.style.setProperty('--scale-factor', s)
       vp.inner.style.setProperty('--user-unit', 1)
       vp.inner.style.setProperty('--total-scale-factor', s)
-      if (horizontal()) Object.assign(vp.slot.style, { width: `${Math.max(W, w + gutter)}px`, height: `${Math.max(H, h + gutter)}px` })
+      if (horizontal()) Object.assign(vp.slot.style, { width: `${Math.max(W, ew + gutter)}px`, height: `${Math.max(H, eh + gutter)}px` })
       else Object.assign(vp.slot.style, { width: '', height: '' })
       if (vp.state === 'done' && Math.abs(vp.renderedScale - s) > 0.001) vp.state = 'stale'
     }
@@ -244,7 +255,7 @@ export async function createPdfEngine(opts) {
     if (r) {
       const half = vps.some(v => v.real === r.p && v.half !== null) ? (r.x + r.w / 2 >= 0.5 ? 1 : 0) : null
       vp = vpFor(r.p, half)
-      offset = Math.max(0, r.y - 0.15)
+      offset = Math.max(0, sheetToBox(vp, r.x, r.y).y - 0.15)
     } else vp = vpFor(target.page, target.half)
     if (!vp) return
     const pos = horizontal() ? startOf(vp) : startOf(vp) + offset * sizeOf(vp) - (offset ? 0 : 8)
@@ -263,6 +274,27 @@ export async function createPdfEngine(opts) {
       const i = Math.min(vps.length - 1, Math.max(0, currentIndex() + dir))
       scroller.scrollTo({ left: startOf(vps[i]), behavior: 'smooth' })
     } else scroller.scrollBy({ top: dir * scroller.clientHeight * 0.88, behavior: 'smooth' })
+  }
+
+  // Punto de pantalla → coordenadas 0–1 de la hoja real (deshace el giro y el recorte de la mitad)
+  function toSheet(vp, X, Y) {
+    const b = vp.el.getBoundingClientRect()
+    const cx = b.left + b.width / 2, cy = b.top + b.height / 2
+    const a = -rotation * Math.PI / 180
+    const dx = X - cx, dy = Y - cy
+    const rx = dx * Math.cos(a) - dy * Math.sin(a), ry = dx * Math.sin(a) + dy * Math.cos(a)
+    const w = vp.w * vp.scale, h = vp.h * vp.scale
+    const u = rx + w / 2 + (vp.half === 1 ? w : 0), v = ry + h / 2
+    return { x: u / (vp.fw * vp.scale), y: v / (vp.fh * vp.scale) }
+  }
+  // Coordenadas de la hoja → fracción dentro del recuadro visible de la página (para desplazarse hasta ahí)
+  function sheetToBox(vp, x, y) {
+    let u = (x * vp.fw - (vp.half === 1 ? vp.w : 0)) / vp.w, v = y
+    u = Math.min(1, Math.max(0, u))
+    if (rotation === 90) return { x: 1 - v, y: u }
+    if (rotation === 180) return { x: 1 - u, y: 1 - v }
+    if (rotation === 270) return { x: v, y: 1 - u }
+    return { x: u, y: v }
   }
 
   // Mantiene en su lugar el punto (x,y de pantalla) al cambiar el zoom o la disposición
@@ -343,8 +375,9 @@ export async function createPdfEngine(opts) {
       const cx = r.left + r.width / 2, cy = r.top + r.height / 2
       const hit = boxes.find(({ box }) => cx >= box.left && cx <= box.right && cy >= box.top && cy <= box.bottom)
       if (!hit) continue
-      const ib = hit.vp.inner.getBoundingClientRect() // coordenadas de la hoja completa
-      out.push({ p: hit.vp.real, x: (r.left - ib.left) / ib.width, y: (r.top - ib.top) / ib.height, w: r.width / ib.width, h: r.height / ib.height })
+      const a = toSheet(hit.vp, r.left, r.top), z = toSheet(hit.vp, r.right, r.bottom)
+      const x0 = Math.min(a.x, z.x), x1 = Math.max(a.x, z.x), y0 = Math.min(a.y, z.y), y1 = Math.max(a.y, z.y)
+      out.push({ p: hit.vp.real, x: x0, y: y0, w: x1 - x0, h: y1 - y0 })
     }
     out.sort((a, b) => a.p - b.p || a.y - b.y || a.x - b.x)
     const merged = []
@@ -438,8 +471,7 @@ export async function createPdfEngine(opts) {
     const pageEl = e.target.closest?.('.pdf-page')
     if (pageEl) {
       const vp = vps[Number(pageEl.dataset.v)]
-      const ib = vp.inner.getBoundingClientRect()
-      const x = (e.clientX - ib.left) / ib.width, y = (e.clientY - ib.top) / ib.height
+      const { x, y } = toSheet(vp, e.clientX, e.clientY)
       for (const ann of annotations.values()) {
         const hit = (ann.locator?.rects ?? []).some(r => r.p === vp.real && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h)
         if (hit) {
@@ -460,8 +492,9 @@ export async function createPdfEngine(opts) {
     const x = e.clientX / window.innerWidth
     tapTimer = setTimeout(() => {
       lastTap = null
-      if (horizontal() && zoom <= 1.001 && x < 0.22) return step(-1)
-      if (horizontal() && zoom <= 1.001 && x > 0.78) return step(1)
+      const edges = horizontal() && (zoom <= 1.001 || lockX)
+      if (edges && x < 0.22) return step(-1)
+      if (edges && x > 0.78) return step(1)
       onTap?.(x)
     }, 260)
   })
@@ -504,7 +537,28 @@ export async function createPdfEngine(opts) {
       build()
       requestAnimationFrame(() => goTo(loc))
     }
+    if ((s.pdfFit || 'auto') !== fitMode || !!s.pdfLockX !== lockX) {
+      const sb = scroller.getBoundingClientRect()
+      const a = anchorAt(sb.left + scroller.clientWidth / 2, sb.top + scroller.clientHeight / 3)
+      fitMode = s.pdfFit || 'auto'
+      lockX = !!s.pdfLockX
+      layout()
+      restoreAnchor(a)
+      vps.forEach(vp => { if (visible.has(vp.idx)) render(vp) })
+      report()
+    }
     if (Math.abs((s.pdfZoom || 1) - zoom) > 0.001) setZoom(s.pdfZoom || 1)
+  }
+
+  // Girar la vista 90° (se guarda por libro)
+  function setRotation(r) {
+    r = ((r % 360) + 360) % 360
+    if (r === rotation) return
+    const { loc } = currentLocator()
+    rotation = r
+    layout()
+    vps.forEach(vp => { if (visible.has(vp.idx)) render(vp) })
+    requestAnimationFrame(() => goTo(loc))
   }
 
   let lastW = 0, lastH = 0
@@ -536,6 +590,9 @@ export async function createPdfEngine(opts) {
     get chapters() { return chapters() },
     get paged() { return horizontal() && zoom <= 1.001 },
     get hasSpreads() { return sizes.some(isSpread) },
+    get fit() { return effectiveFit() },
+    get rotation() { return rotation },
+    setRotation,
     describe: f => `pág. ${Math.min(vps.length, Math.floor(f * vps.length) + 1)} de ${vps.length}`,
     zoom: () => zoom,
     pageCount: n,

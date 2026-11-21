@@ -15,6 +15,9 @@ export const DEFAULT_SETTINGS = {
   pdfZoom: 1,              // 1 = ajustar (al ancho en continuo, a la pantalla en páginas)
   pdfFlow: 'continuo',     // continuo (vertical) | paginas (horizontal, de a una)
   pdfSplit: 'auto',        // auto | siempre | nunca — escaneos con dos páginas por hoja
+  pdfFit: 'auto',          // auto | ancho | pantalla
+  pdfLockX: false,         // bloquear el movimiento lateral
+  orientation: 'auto',     // auto | vertical | horizontal (pantalla del celu)
 }
 
 export const THEMES = {

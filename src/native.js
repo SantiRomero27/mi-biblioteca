@@ -69,3 +69,12 @@ export async function nativeGoogleToken(serverClientId) {
   const { idToken } = await Biblioteca.googleSignIn({ serverClientId })
   return idToken
 }
+
+// Orientación de pantalla: auto | vertical | horizontal
+export async function setOrientation(mode) {
+  if (isNative) return Biblioteca.setOrientation({ mode }).catch(() => {})
+  try {
+    if (mode === 'auto') screen.orientation?.unlock?.()
+    else await screen.orientation?.lock?.(mode === 'vertical' ? 'portrait' : 'landscape')
+  } catch { /* el navegador solo lo permite en pantalla completa */ }
+}

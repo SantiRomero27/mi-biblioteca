@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.UriPermission;
+import android.content.pm.ActivityInfo;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.CancellationSignal;
@@ -268,6 +269,20 @@ public class LibraryPlugin extends Plugin {
             } catch (Exception e) {
                 call.reject("No se pudo borrar: " + e.getMessage());
             }
+        });
+    }
+
+    // ---------- Orientación de pantalla ----------
+
+    @PluginMethod
+    public void setOrientation(PluginCall call) {
+        String mode = call.getString("mode", "auto");
+        int value = "vertical".equals(mode) ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            : "horizontal".equals(mode) ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            : ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+        getActivity().runOnUiThread(() -> {
+            getActivity().setRequestedOrientation(value);
+            call.resolve();
         });
     }
 
