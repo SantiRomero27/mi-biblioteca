@@ -133,6 +133,7 @@ export async function importFile(file) {
     addedAt: now(),
     lastOpenedAt: null,
     updatedAt: now(),
+    fieldTimes: {},
     deleted: false,
     _dirty: true,
   }
@@ -169,15 +170,17 @@ export async function importFromFolder({ uri, name, size, fingerprint: id }) {
     fileName: name, size, pages: meta.pages ?? null, cover: meta.cover ?? null,
     favorite: false, finished: false, toRead: false,
     progress: { fraction: 0, locator: null, label: '' },
-    addedAt: now(), lastOpenedAt: null, updatedAt: now(), deleted: false, _dirty: true,
+    addedAt: now(), lastOpenedAt: null, updatedAt: now(), fieldTimes: {}, deleted: false, _dirty: true,
   })
   applyReadEra(id)
   return 'nuevo'
 }
 
 // Si hay datos importados de ReadEra para este archivo, se aplican en segundo plano
+let readEraQueue = Promise.resolve()
 function applyReadEra(id) {
-  import('./readera.js')
+  readEraQueue = readEraQueue
+    .then(() => import('./readera.js'))
     .then(m => m.applyPendingFor(id))
     .then(r => { if (r) changes.dispatchEvent(new CustomEvent('readera-applied', { detail: { id, ...r } })) })
     .catch(e => console.error(e))
@@ -212,7 +215,11 @@ export const getFile = id => db.get('files', id)
 export async function updateBook(id, patch) {
   const book = await db.get('books', id)
   if (!book) return null
-  const next = { ...book, ...patch, updatedAt: now(), _dirty: true }
+  // cada campo cambiado guarda su propia fecha (ver merge.js)
+  const t = now()
+  const fieldTimes = { ...(book.fieldTimes ?? {}) }
+  for (const k of Object.keys(patch)) fieldTimes[k] = t
+  const next = { ...book, ...patch, fieldTimes, updatedAt: t, _dirty: true }
   await db.put('books', next)
   return next
 }

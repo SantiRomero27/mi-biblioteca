@@ -12,6 +12,7 @@ import { getFirestore, collection, doc, onSnapshot, writeBatch } from 'firebase/
 import { firebaseConfig, googleWebClientId } from './firebase-config.js'
 import { isNative, nativeGoogleToken } from './native.js'
 import { db, changes } from './db.js'
+import { mergeBook, sameBook } from './merge.js'
 
 const STORES = ['books', 'annotations']
 
@@ -57,17 +58,23 @@ export function initSync() {
   window.addEventListener('offline', () => { if (uid) setState('offline') })
 }
 
+// Antes de subir nada se espera la primera descarga de cada colección: así lo local se fusiona con
+// lo que ya hay en la nube y nunca se sube un registro "en blanco" encima de datos existentes.
+let ready = new Set()
 function start(user) {
   uid = user.uid
+  ready = new Set()
   setState(navigator.onLine ? 'syncing' : 'offline')
   for (const store of STORES) {
     const ref = collection(fs, 'users', uid, store)
-    unsubs.push(onSnapshot(ref, { includeMetadataChanges: false }, snap => merge(store, snap), err => {
+    unsubs.push(onSnapshot(ref, { includeMetadataChanges: false }, async snap => {
+      await merge(store, snap)
+      if (!ready.has(store)) { ready.add(store); if (ready.size === STORES.length) schedulePush(0) }
+    }, err => {
       console.error(err)
       setState('error', err.message)
     }))
   }
-  schedulePush(0)
 }
 
 function stop() {
@@ -82,6 +89,15 @@ async function merge(store, snap) {
     if (change.type === 'removed') continue
     const remote = change.doc.data()
     const local = await db.get(store, remote.id)
+    if (store === 'books' && local) {
+      // libros: campo por campo
+      const merged = mergeBook(local, remote)
+      const needsPush = !sameBook(merged, remote)
+      if (needsPush || !sameBook(merged, local)) {
+        await db.put('books', { ...merged, cover: local.cover ?? null, _dirty: needsPush }, needsPush ? 'local' : 'remote')
+      }
+      continue
+    }
     if (!local || (remote.updatedAt ?? 0) > (local.updatedAt ?? 0)) {
       const next = { ...remote, _dirty: false }
       if (store === 'books') next.cover = local?.cover ?? null // la portada vive solo en el dispositivo
@@ -106,7 +122,7 @@ function schedulePush(delay = 900) {
 }
 
 async function pushDirty() {
-  if (!uid || pushing) return
+  if (!uid || pushing || ready.size < STORES.length) return
   if (!navigator.onLine) return setState('offline')
   pushing = true
   try {
