@@ -7,7 +7,8 @@ import {
   getBook, getFile, updateBook, importFile, listAnnotations, addAnnotation,
   updateAnnotation, removeAnnotation, COLORS,
 } from '../books.js'
-import { loadSettings, saveSettings, THEMES, listCustomFonts, addCustomFont } from '../settings.js'
+import { loadSettings, saveSettings, THEMES, DEFAULT_SETTINGS, listCustomFonts, addCustomFont } from '../settings.js'
+import { createProgressTrack } from './progress-track.js'
 
 export async function renderReader(root, bookId, { onExit, annId = null }) {
   const book = await getBook(bookId)
@@ -32,7 +33,18 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
           <span class="rd-label"></span>
           <span class="rd-page"></span>
         </div>
-        <input class="rd-slider" type="range" min="0" max="1" step="0.0005" value="0" aria-label="Progreso" />
+        <div class="rd-track"></div>
+        <div class="rd-tools">
+          <button class="tool" data-tool="prev-ch" title="Capítulo anterior">${icon('skipPrev')}</button>
+          <div class="tool-group">
+            <button class="tool" data-tool="minus">${icon('remove')}</button>
+            <button class="tool tool-val" data-tool="reset"></button>
+            <button class="tool" data-tool="plus">${icon('add')}</button>
+          </div>
+          <button class="tool" data-tool="theme" title="Cambiar modo de color">${icon('contrast')}</button>
+          <button class="tool" data-tool="fullscreen" title="Pantalla completa">${icon('fullscreen')}</button>
+          <button class="tool" data-tool="next-ch" title="Capítulo siguiente">${icon('skipNext')}</button>
+        </div>
       </footer>
       <div class="rd-scrim"></div>
       <aside class="rd-panel" aria-label="Índice y notas">
@@ -52,7 +64,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
   root.replaceChildren(el)
 
   const stage = $('.rd-stage', el)
-  const slider = $('.rd-slider', el)
+  let track = null
   const popEl = $('.sel-pop', el)
   let engine = null
   let annotations = []
@@ -132,14 +144,95 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
 
   // ---------- Progreso ----------
   function updateProgressUI() {
-    slider.value = position.fraction ?? 0
+    track?.set(position.fraction ?? 0)
     $('.rd-label', el).textContent = position.label || ''
     $('.rd-section', el).textContent = position.label || ''
     $('.rd-page', el).textContent = position.pageLabel || ''
     refreshBookmarkBtn()
     if (panelTab === 'toc' && el.classList.contains('panel-open')) markCurrentToc()
   }
-  slider.addEventListener('input', () => engine.goToFraction(parseFloat(slider.value)))
+
+  // ---------- Línea de progreso con capítulos ----------
+  track = createProgressTrack($('.rd-track', el), {
+    onSeek: f => engine.goToFraction(f),
+    onChapter: c => engine.goTo(c.target),
+    describe: f => engine.describe(f),
+  })
+  track.setChapters(engine.chapters ?? [])
+  track.set(position.fraction ?? 0)
+  el.classList.add('is-ready')
+
+  // ---------- Herramientas rápidas ----------
+  const isPdf = book.format === 'pdf'
+  const toolVal = $('[data-tool=reset]', el)
+  const paintTools = () => {
+    toolVal.textContent = isPdf ? `${Math.round(settings.pdfZoom * 100)} %` : `${settings.fontSize} px`
+    toolVal.title = isPdf ? 'Ajustar al ancho' : 'Tamaño por defecto'
+    $('[data-tool=minus]', el).title = isPdf ? 'Alejar' : 'Letra más chica'
+    $('[data-tool=plus]', el).title = isPdf ? 'Acercar' : 'Letra más grande'
+    const fs = !!document.fullscreenElement
+    const fsBtn = $('[data-tool=fullscreen]', el)
+    fsBtn.innerHTML = icon(fs ? 'fullscreenExit' : 'fullscreen')
+    fsBtn.title = fs ? 'Salir de pantalla completa' : 'Pantalla completa'
+  }
+  if (!document.fullscreenEnabled) $('[data-tool=fullscreen]', el).remove()
+
+  function stepSize(dir) {
+    if (isPdf) {
+      const z = Math.round(Math.min(3, Math.max(0.5, settings.pdfZoom + dir * 0.1)) * 100) / 100
+      if (z !== settings.pdfZoom) update({ pdfZoom: z })
+    } else {
+      const f = Math.min(40, Math.max(12, settings.fontSize + dir))
+      if (f !== settings.fontSize) update({ fontSize: f })
+    }
+  }
+  function goChapter(dir) {
+    const list = track.chapters()
+    if (!list.length) return toast('Este libro no trae índice')
+    const cur = position.fraction ?? 0
+    if (dir > 0) {
+      const next = list.find(c => c.fraction > cur + 0.0005)
+      if (next) engine.goTo(next.target)
+      else toast('Ya estás en el último capítulo')
+    } else {
+      const here = track.chapterAt(cur)
+      const idx = here ? list.indexOf(here) : -1
+      const target = here && cur - here.fraction > 0.003 ? here : list[idx - 1]
+      if (target) engine.goTo(target.target)
+      else engine.goToFraction(0)
+    }
+  }
+  const themes = Object.keys(THEMES)
+  $('.rd-tools', el).addEventListener('click', e => {
+    const t = e.target.closest('[data-tool]')?.dataset.tool
+    if (!t) return
+    if (t === 'minus') stepSize(-1)
+    else if (t === 'plus') stepSize(1)
+    else if (t === 'reset') update(isPdf ? { pdfZoom: 1 } : { fontSize: DEFAULT_SETTINGS.fontSize })
+    else if (t === 'prev-ch') goChapter(-1)
+    else if (t === 'next-ch') goChapter(1)
+    else if (t === 'theme') {
+      const next = themes[(themes.indexOf(settings.theme) + 1) % themes.length]
+      update({ theme: next })
+      toast(`Modo ${THEMES[next].label.toLowerCase()}`)
+    } else if (t === 'fullscreen') {
+      if (document.fullscreenElement) document.exitFullscreen()
+      else document.documentElement.requestFullscreen?.().catch(() => toast('No se pudo pasar a pantalla completa'))
+    }
+  })
+  const onFs = () => paintTools()
+  document.addEventListener('fullscreenchange', onFs)
+  paintTools()
+
+  // Ctrl + rueda del mouse: zoom en PDF / tamaño de letra en EPUB
+  let wheelAt = 0
+  stage.addEventListener('wheel', e => {
+    if (!e.ctrlKey) return
+    e.preventDefault()
+    if (Date.now() - wheelAt < 110) return
+    wheelAt = Date.now()
+    stepSize(e.deltaY < 0 ? 1 : -1)
+  }, { passive: false })
 
   function scheduleSave() {
     clearTimeout(saveTimer)
@@ -475,7 +568,8 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     el.dataset.theme = settings.theme
     await saveSettings(settings)
     await engine.applySettings(settings)
-    renderSettings()
+    paintTools()
+    if (el.classList.contains('settings-open')) renderSettings()
   }
 
   // ---------- Teclado ----------
@@ -484,6 +578,8 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     if (e.key === 'ArrowRight' || e.key === 'PageDown' || (e.key === ' ' && engine.format === 'epub')) { e.preventDefault(); engine.next() }
     else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); engine.prev() }
     else if (e.key === 'Escape') { hidePop(); closeOverlays() }
+    else if (e.key === '+' || e.key === '=') { e.preventDefault(); stepSize(1) }
+    else if (e.key === '-') { e.preventDefault(); stepSize(-1) }
   }
   document.addEventListener('keydown', onKey)
   stage.addEventListener('keydown', onKey)
@@ -511,6 +607,8 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     await saveNow()
     document.removeEventListener('keydown', onKey)
     document.removeEventListener('visibilitychange', onHide)
+    document.removeEventListener('fullscreenchange', onFs)
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
     changes.removeEventListener('change', onChange)
     engine?.destroy()
   }

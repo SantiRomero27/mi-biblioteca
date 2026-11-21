@@ -48,20 +48,24 @@ export function promptNote({ title = 'Nota', quote = '', value = '' } = {}) {
   })
 }
 
-export function confirmDialog({ title, body, ok = 'Aceptar', danger = false }) {
+// Con `check` muestra una casilla y devuelve { ok, checked }; sin `check` devuelve true/false.
+export function confirmDialog({ title, body, hint = '', check = null, ok = 'Aceptar', danger = false }) {
   return new Promise(resolve => {
     const el = h(`
       <div class="modal-backdrop">
         <div class="modal">
           <h2 class="modal-title">${esc(title)}</h2>
           <p class="modal-body">${esc(body)}</p>
+          ${check ? `<label class="modal-check"><input type="checkbox" /><span>${esc(check)}</span></label>` : ''}
+          ${hint ? `<p class="modal-hint">${esc(hint)}</p>` : ''}
           <div class="modal-actions">
             <button class="btn-text" data-act="cancel">Cancelar</button>
             <button class="btn-filled ${danger ? 'danger' : ''}" data-act="ok">${esc(ok)}</button>
           </div>
         </div>
       </div>`)
-    const done = v => { el.remove(); resolve(v) }
+    const box = $('.modal-check input', el)
+    const done = v => { el.remove(); resolve(check ? { ok: v, checked: !!box?.checked } : v) }
     el.addEventListener('click', e => { if (e.target === el) done(false) })
     $('[data-act=cancel]', el).onclick = () => done(false)
     $('[data-act=ok]', el).onclick = () => done(true)

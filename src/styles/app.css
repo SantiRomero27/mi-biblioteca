@@ -217,6 +217,8 @@ button { background: none; border: 0; padding: 0; cursor: pointer; }
   margin: 0 0 12px; padding: 8px 12px; border-left: 3px solid var(--accent);
   background: rgba(232,163,61,.09); font-size: 14px; line-height: 1.45; color: var(--muted);
 }
+.modal-check { display: flex; align-items: flex-start; gap: 10px; margin: 4px 0 8px; font-size: 14.5px; line-height: 1.4; cursor: pointer; }
+.modal-check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--danger); flex: none; }
 .modal-text, .login input {
   width: 100%; border: 1px solid var(--line); border-radius: 8px;
   background: var(--paper); padding: 10px 12px; resize: vertical; outline: none; line-height: 1.45;
@@ -281,7 +283,49 @@ button { background: none; border: 0; padding: 0; cursor: pointer; }
 .rd-progress-row { display: flex; justify-content: space-between; gap: 16px; font-size: 12.5px; opacity: .85; }
 .rd-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rd-page { font-variant-numeric: tabular-nums; flex: none; }
-.rd-slider { width: 100%; margin: 8px 0 0; accent-color: var(--accent); height: 22px; }
+
+/* Línea de progreso con capítulos */
+.reader:not(.is-ready) .rd-track, .reader:not(.is-ready) .rd-tools { display: none; }
+.trk { position: relative; height: 30px; margin: 4px 0 0; cursor: pointer; touch-action: none; outline: none; }
+.trk-rail { position: absolute; left: 0; right: 0; top: 13px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.18); overflow: hidden; }
+.trk-fill { height: 100%; background: var(--accent); }
+.trk-marks { position: absolute; inset: 0; pointer-events: none; }
+.trk-mark {
+  position: absolute; top: 8px; width: 12px; height: 14px; margin-left: -6px;
+  pointer-events: auto; cursor: pointer;
+}
+.trk-mark::before {
+  content: ''; position: absolute; left: 5px; top: 0; width: 2px; height: 14px; border-radius: 1px;
+  background: rgba(255,255,255,.7); transition: transform .12s, background .12s;
+}
+.trk-mark.is-sub::before { top: 3px; height: 8px; background: rgba(255,255,255,.38); }
+.trk-mark.is-current::before { background: #fff; }
+.trk-mark:hover::before { transform: scaleY(1.35); background: var(--accent); }
+.trk-thumb {
+  position: absolute; top: 7px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 3px rgba(0,0,0,.25); pointer-events: none;
+  transition: transform .12s;
+}
+.trk.is-dragging .trk-thumb, .trk:focus-visible .trk-thumb { transform: scale(1.25); }
+.trk-tip {
+  position: absolute; bottom: 34px; transform: translateX(-50%);
+  background: #0a1f25; color: #fff; padding: 7px 11px; border-radius: 8px;
+  font-size: 12.5px; line-height: 1.3; white-space: nowrap; max-width: min(320px, 80vw);
+  box-shadow: 0 6px 18px rgba(0,0,0,.3); pointer-events: none;
+  display: flex; flex-direction: column; align-items: center;
+}
+.trk-tip[hidden] { display: none; }
+.trk-tip strong { font-weight: 700; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.trk-tip span { opacity: .75; font-variant-numeric: tabular-nums; }
+.trk-tip.is-mark strong { color: var(--accent); }
+
+/* Herramientas rápidas */
+.rd-tools { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 4px auto 0; max-width: 560px; }
+.tool { display: inline-grid; place-items: center; min-width: 40px; height: 38px; border-radius: 10px; color: #fff; opacity: .9; }
+.tool:hover { background: rgba(255,255,255,.1); opacity: 1; }
+.tool .ic { width: 22px; height: 22px; }
+.tool-group { display: flex; align-items: center; background: rgba(255,255,255,.08); border-radius: 12px; padding: 0 2px; }
+.tool-val { min-width: 64px; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .reader.chrome-hidden .rd-top { transform: translateY(-100%); opacity: 0; pointer-events: none; }
 .reader.chrome-hidden .rd-bottom { transform: translateY(100%); opacity: 0; pointer-events: none; }

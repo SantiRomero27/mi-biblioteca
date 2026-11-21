@@ -158,10 +158,13 @@ export async function createPdfEngine({ host, file, settings, initialLocator, on
   }
   async function buildToc(items, out, level) {
     for (const it of items ?? []) {
+      const label = (it.title ?? '').replace(/\s+/g, ' ').trim()
+      // entradas sin título (frecuentes en PDF exportados): se omiten y sus hijas suben un nivel
+      if (!label) { await buildToc(it.items, out, level); continue }
       const page = it.dest ? await resolveDest(it.dest) : null
-      const node = { label: it.title, target: page ? { page, offset: 0 } : null, page, subitems: [] }
+      const node = { label, target: page ? { page, offset: 0 } : null, page, subitems: [] }
       out.push(node)
-      if (page) flat.push({ label: it.title, page, level })
+      if (page) flat.push({ label, page, level })
       await buildToc(it.items, node.subitems, level + 1)
     }
   }
@@ -351,9 +354,17 @@ export async function createPdfEngine({ host, file, settings, initialLocator, on
     else report()
   })
 
+  const chapters = flat.map(f => ({
+    label: f.label, level: f.level, fraction: (f.page - 1) / n,
+    target: { page: f.page, offset: 0 }, pageLabel: `pág. ${f.page}`,
+  }))
+
   return {
     format: 'pdf',
     toc,
+    chapters,
+    describe: f => `pág. ${Math.min(n, Math.floor(f * n) + 1)} de ${n}`,
+    zoom: () => zoom,
     pageCount: n,
     goTo: t => goTo(t),
     goToFraction,

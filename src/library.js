@@ -5,6 +5,7 @@ import { changes } from './db.js'
 import {
   listBooks, importFile, updateBook, deleteBook, removeLocalFile, listAnnotations, formatSize, COLORS,
 } from './books.js'
+import { platform } from './platform.js'
 import { sync, signIn, signUp, signOut, resetPassword, syncNow, signInWithGoogle } from './sync.js'
 
 let filter = 'todos'
@@ -243,8 +244,23 @@ export async function renderLibrary(root, { openBook }) {
     })
     $('[data-m=delete]', menu).onclick = async () => {
       close()
-      const ok = await confirmDialog({ title: 'Eliminar libro', body: `Se elimina "${b.title}" con todas sus notas y subrayados, en todos tus dispositivos.`, ok: 'Eliminar', danger: true })
-      if (ok) { await deleteBook(b.id); render() }
+      const native = platform.isNative && platform.deleteOriginal && b.hasFile
+      const res = await confirmDialog({
+        title: 'Eliminar libro',
+        body: `Se elimina "${b.title}" de la biblioteca, con todas sus notas y subrayados, en todos tus dispositivos.`,
+        check: native ? 'Borrar también el archivo de la carpeta del celu' : null,
+        hint: native ? '' : (b.hasFile ? 'La copia guardada en este navegador se borra. El archivo original en tu computadora no se toca: el navegador no tiene permiso para eso.' : ''),
+        ok: 'Eliminar', danger: true,
+      })
+      const ok = native ? res.ok : res
+      if (!ok) return
+      if (native && res.checked) {
+        const done = await platform.deleteOriginal(b.id).catch(() => false)
+        if (!done) toast('No se pudo borrar el archivo original')
+      }
+      await deleteBook(b.id)
+      toast('Libro eliminado')
+      render()
     }
   }
 

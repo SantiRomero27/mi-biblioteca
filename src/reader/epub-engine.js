@@ -82,11 +82,12 @@ async function buildCSS(s) {
   `
 }
 
-const flattenToc = (items = []) => items.map(it => ({
-  label: (it.label ?? '').trim(),
-  target: it.href,
-  subitems: flattenToc(it.subitems ?? []),
-}))
+const flattenToc = (items = []) => items.flatMap(it => {
+  const label = (it.label ?? '').replace(/\s+/g, ' ').trim()
+  const subitems = flattenToc(it.subitems ?? [])
+  if (!label) return subitems
+  return [{ label, target: it.href, subitems }]
+})
 
 export async function createEpubEngine({ host, file, settings, initialLocator, onRelocate, onSelection, onAnnotationClick, onTap }) {
   const view = document.createElement('foliate-view')
@@ -214,9 +215,29 @@ export async function createEpubEngine({ host, file, settings, initialLocator, o
 
   const toc = flattenToc(view.book.toc ?? [])
 
+  // Marcas de capítulos para la línea de progreso: fracción donde empieza cada sección del índice
+  const sectionFractions = view.getSectionFractions?.() ?? []
+  const chapters = []
+  const walk = async (items, level) => {
+    for (const it of items) {
+      try {
+        const r = await view.resolveNavigation(it.target)
+        const fraction = sectionFractions[r?.index]
+        if (typeof fraction === 'number') chapters.push({ label: it.label, level, fraction, target: it.target, pageLabel: `${Math.round(fraction * 100)} %` })
+      } catch { /* destino inválido */ }
+      await walk(it.subitems, level + 1)
+    }
+  }
+  await walk(toc, 0)
+  // una sola marca por posición (varias entradas pueden apuntar al mismo archivo)
+  const seen = new Set()
+  const uniqueChapters = chapters.filter(c => { const k = c.fraction.toFixed(4); if (seen.has(k)) return false; seen.add(k); return true })
+
   return {
     format: 'epub',
     toc,
+    chapters: uniqueChapters,
+    describe: f => `${Math.round(f * 100)} %`,
     goTo: t => view.goTo(typeof t === 'string' ? t : t?.cfi),
     goToFraction: f => view.goToFraction(f),
     next: () => view.goRight(),
