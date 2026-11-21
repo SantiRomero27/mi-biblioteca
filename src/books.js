@@ -1,5 +1,5 @@
 // Lógica de la biblioteca: importar libros, progreso, anotaciones.
-import { db } from './db.js'
+import { db, changes } from './db.js'
 
 // ---------- Huella del archivo ----------
 // El ID de cada libro sale de su contenido, no del nombre: tamaño + primeros y últimos 2 MB.
@@ -110,6 +110,7 @@ export async function importFile(file) {
     // El libro ya estaba en la cuenta (vino de otro dispositivo): solo le sumamos el archivo y la portada
     const book = { ...existing, cover: meta.cover ?? existing.cover ?? null }
     await db.put('books', book, 'remote') // la portada es local; no hace falta subir nada
+    applyReadEra(id)
     return { book, status: 'vinculado' }
   }
 
@@ -133,6 +134,7 @@ export async function importFile(file) {
     _dirty: true,
   }
   await db.put('books', book)
+  applyReadEra(id)
   return { book, status: 'nuevo' }
 }
 
@@ -150,6 +152,7 @@ export async function importFromFolder({ uri, name, size, fingerprint: id }) {
       const meta = formatOf(file) === 'epub' ? await readEpubMeta(file) : await readPdfMeta(file)
       await db.put('books', { ...book, cover: meta.cover ?? null }, 'remote')
     }
+    if (!row) applyReadEra(id)
     return row ? 'existente' : 'vinculado'
   }
   const file = await loadFileBlob({ uri, name })
@@ -165,7 +168,16 @@ export async function importFromFolder({ uri, name, size, fingerprint: id }) {
     progress: { fraction: 0, locator: null, label: '' },
     addedAt: now(), lastOpenedAt: null, updatedAt: now(), deleted: false, _dirty: true,
   })
+  applyReadEra(id)
   return 'nuevo'
+}
+
+// Si hay datos importados de ReadEra para este archivo, se aplican en segundo plano
+function applyReadEra(id) {
+  import('./readera.js')
+    .then(m => m.applyPendingFor(id))
+    .then(r => { if (r) changes.dispatchEvent(new CustomEvent('readera-applied', { detail: { id, ...r } })) })
+    .catch(e => console.error(e))
 }
 
 // Devuelve el archivo listo para abrir: la copia guardada (web) o el original de la carpeta (Android)

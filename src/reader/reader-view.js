@@ -316,6 +316,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
           <span class="ann-meta">${esc(a.label || '')}${a.label ? ' · ' : ''}${book.format === 'pdf' && a.locator?.page ? `pág. ${a.locator.page}` : `${Math.round((a.fraction ?? 0) * 100)} %`}</span>
           ${a.text ? `<span class="ann-text">${esc(a.text)}</span>` : ''}
           ${a.note ? `<span class="ann-note">${esc(a.note)}</span>` : ''}
+          ${a.unplaced && kind === 'highlight' ? `<span class="ann-tag">De ReadEra · sin marcar en la página</span>` : ''}
         </button>
         <div class="ann-actions">
           ${kind === 'highlight' ? `<button class="icon-btn sm" data-act="edit" title="Editar nota">${icon('edit')}</button>` : ''}

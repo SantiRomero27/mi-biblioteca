@@ -53,6 +53,8 @@ export async function renderLibrary(root, { openBook }) {
             <input type="file" accept=".pdf,.epub,application/pdf,application/epub+zip" multiple hidden data-add />
           </label>
           <button class="icon-btn account-btn" data-act="account" title="Cuenta y sincronización"></button>
+          <button class="icon-btn" data-act="lib-menu" title="Más opciones">${icon('more')}</button>
+          <input type="file" ${isNative ? '' : 'accept=".bak,.json"'} hidden data-readera />
         </div>
         <div class="lib-search" hidden>
           <input type="search" placeholder="Buscar por título, autor o descripción" />
@@ -169,6 +171,73 @@ export async function renderLibrary(root, { openBook }) {
     if (document.visibilityState === 'visible' && Date.now() - lastScan > 20000) runScan({ quiet: true })
   }
   if (isNative) document.addEventListener('visibilitychange', onVisible)
+
+  // ---------- Importar desde ReadEra ----------
+  $('[data-act=lib-menu]', el).onclick = async e => {
+    $('.menu-pop')?.remove()
+    const r = e.currentTarget.getBoundingClientRect()
+    const { listPending } = await import('./readera.js')
+    const pending = await listPending()
+    const menu = h(`
+      <div class="menu-pop" role="menu">
+        <button data-m="readera">Importar desde ReadEra…</button>
+        ${pending.length ? `<button data-m="pending">Pendientes de ReadEra (${pending.length})</button>` : ''}
+      </div>`)
+    document.body.append(menu)
+    menu.style.top = `${r.bottom + 4}px`
+    menu.style.left = `${Math.max(8, r.right - menu.offsetWidth)}px`
+    const close = () => { menu.remove(); document.removeEventListener('pointerdown', outside, true) }
+    const outside = ev => { if (!menu.contains(ev.target)) close() }
+    setTimeout(() => document.addEventListener('pointerdown', outside, true))
+    $('[data-m=readera]', menu).onclick = () => { close(); $('[data-readera]', el).click() }
+    $('[data-m=pending]', menu)?.addEventListener('click', () => { close(); showPending(pending) })
+  }
+
+  $('[data-readera]', el).onchange = async e => {
+    const f = e.target.files[0]
+    e.target.value = ''
+    if (!f) return
+    const { importBackup } = await import('./readera.js')
+    scanEl.hidden = false
+    scanEl.textContent = 'Leyendo la copia de ReadEra…'
+    try {
+      const st = await importBackup(f, (i, n, title) => { scanEl.textContent = `Pasando datos de ReadEra ${i} de ${n} · ${title}` })
+      scanEl.hidden = true
+      await render()
+      const lines = [
+        `Encontré ${st.books} libros en la copia de ReadEra.`,
+        st.applied ? `Ya pasé los datos de ${st.applied} ${st.applied === 1 ? 'libro' : 'libros'} que están en tu biblioteca: progreso, leídos y favoritos, ${st.placed + st.unplaced ? `${st.placed} citas marcadas en su lugar${st.unplaced ? ` y ${st.unplaced} guardadas como nota sin marcar (no encontré el texto exacto en la página)` : ''}` : 'sin citas nuevas'}${st.bookmarks ? `, ${st.bookmarks} marcadores` : ''}.` : 'Todavía no hay en tu biblioteca ningún libro de esa copia.',
+        st.pending ? `${st.pending === 1 ? 'Queda 1 libro pendiente: se completa solo' : `Quedan ${st.pending} libros pendientes: se completan solos`} cuando agregues ${st.pending === 1 ? 'ese archivo' : 'esos archivos'}${isNative ? ' a tus carpetas' : ''}.` : '',
+      ].filter(Boolean)
+      await confirmDialog({ title: 'Importación de ReadEra', body: lines.join('\n\n'), ok: 'Listo', cancel: false })
+    } catch (err) {
+      console.error(err)
+      scanEl.hidden = true
+      toast(err.message || 'No se pudo leer la copia')
+    }
+  }
+
+  function showPending(pending) {
+    const sheet = h(`
+      <div class="modal-backdrop">
+        <div class="modal">
+          <h2 class="modal-title">Pendientes de ReadEra</h2>
+          <p class="modal-hint">Estos libros tienen datos de ReadEra esperando. Cuando agregues el mismo archivo, se pasan solos el progreso y las citas.</p>
+          <ul class="pending-list">${pending.map(p => `
+            <li><strong>${esc(p.title)}</strong><span>${p.format.toUpperCase()}${p.citations.length ? ` · ${p.citations.length} citas` : ''}${p.position ? ` · ${Math.round(p.position.ratio * 100)} %` : ''}${p.finished ? ' · leído' : ''}</span></li>`).join('')}
+          </ul>
+          <div class="modal-actions"><button class="btn-filled" data-act="ok">Cerrar</button></div>
+        </div>
+      </div>`)
+    sheet.addEventListener('click', ev => { if (ev.target === sheet || ev.target.dataset.act === 'ok') sheet.remove() })
+    document.body.append(sheet)
+  }
+
+  const onReadEra = e => {
+    const { placed, unplaced } = e.detail
+    toast(`Datos de ReadEra aplicados${placed + unplaced ? ` · ${placed + unplaced} citas` : ''}`)
+  }
+  changes.addEventListener('readera-applied', onReadEra)
 
   // ---------- Buscar ----------
   $('[data-act=search]', el).onclick = () => {
@@ -313,6 +382,7 @@ export async function renderLibrary(root, { openBook }) {
                 <span class="ann-meta">${esc(a.label || '')}${a.label ? ' · ' : ''}${new Date(a.createdAt).toLocaleDateString('es-AR')}</span>
                 <span class="ann-text">${esc(a.text)}</span>
                 ${a.note ? `<span class="ann-note">${esc(a.note)}</span>` : ''}
+                ${a.unplaced ? `<span class="ann-tag">De ReadEra · sin marcar en la página</span>` : ''}
               </button>
             </li>`).join('')}</ul>
         </section>`
@@ -476,6 +546,7 @@ export async function renderLibrary(root, { openBook }) {
   if (isNative && Date.now() - lastScan > 20000) runScan({ quiet: true })
   return () => {
     document.removeEventListener('visibilitychange', onVisible)
+    changes.removeEventListener('readera-applied', onReadEra)
     changes.removeEventListener('change', onChange)
     sync.removeEventListener('state', paintAccount)
     sync.removeEventListener('auth-error', onAuthError)

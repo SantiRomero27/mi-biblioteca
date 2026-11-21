@@ -211,7 +211,8 @@ export async function createEpubEngine({ host, file, settings, initialLocator, o
   }
   await applySettings(settings)
 
-  await view.init({ lastLocation: initialLocator?.cfi ?? null, showTextStart: !initialLocator?.cfi })
+  const startAt = initialLocator?.cfi ?? (typeof initialLocator?.fraction === 'number' ? { fraction: initialLocator.fraction } : null)
+  await view.init({ lastLocation: startAt, showTextStart: !startAt })
 
   const toc = flattenToc(view.book.toc ?? [])
 
@@ -238,7 +239,9 @@ export async function createEpubEngine({ host, file, settings, initialLocator, o
     toc,
     chapters: uniqueChapters,
     describe: f => `${Math.round(f * 100)} %`,
-    goTo: t => view.goTo(typeof t === 'string' ? t : t?.cfi),
+    goTo: t => typeof t === 'string' ? view.goTo(t)
+      : t?.cfi ? view.goTo(t.cfi)
+      : typeof t?.fraction === 'number' ? view.goToFraction(t.fraction) : null,
     goToFraction: f => view.goToFraction(f),
     next: () => view.goRight(),
     prev: () => view.goLeft(),
