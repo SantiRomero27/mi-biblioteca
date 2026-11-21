@@ -7,6 +7,12 @@ import { THEMES, listCustomFonts } from '../settings.js'
 import archivoLatin from '@fontsource-variable/archivo/files/archivo-latin-wdth-normal.woff2?url'
 import archivoLatinExt from '@fontsource-variable/archivo/files/archivo-latin-ext-wdth-normal.woff2?url'
 import archivoLatinItalic from '@fontsource-variable/archivo/files/archivo-latin-wdth-italic.woff2?url'
+import lato400 from '@fontsource/lato/files/lato-latin-400-normal.woff2?url'
+import lato400i from '@fontsource/lato/files/lato-latin-400-italic.woff2?url'
+import lato700 from '@fontsource/lato/files/lato-latin-700-normal.woff2?url'
+import lato700i from '@fontsource/lato/files/lato-latin-700-italic.woff2?url'
+import lato400ext from '@fontsource/lato/files/lato-latin-ext-400-normal.woff2?url'
+import lato700ext from '@fontsource/lato/files/lato-latin-ext-700-normal.woff2?url'
 
 const abs = u => new URL(u, location.href).href
 
@@ -22,7 +28,16 @@ async function buildCSS(s) {
   }
   const family = s.font === 'original' ? null
     : custom ? `"Propia ${custom}", "Archivo Variable", sans-serif`
+    : s.font === 'lato' ? `"Lato", sans-serif`
     : `"Archivo Variable", sans-serif`
+  const LATIN = 'U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD'
+  const latoFace = (w, st, url, range) =>
+    `@font-face { font-family: "Lato"; font-style: ${st}; font-weight: ${w}; src: url("${abs(url)}") format("woff2");${range ? ` unicode-range: ${range};` : ''} }`
+  const latoFaces = s.font === 'lato' ? [
+    latoFace(400, 'normal', lato400, LATIN), latoFace(400, 'normal', lato400ext, 'U+0100-02BA,U+1E00-1EFF'),
+    latoFace(700, 'normal', lato700, LATIN), latoFace(700, 'normal', lato700ext, 'U+0100-02BA,U+1E00-1EFF'),
+    latoFace(400, 'italic', lato400i), latoFace(700, 'italic', lato700i),
+  ].join('\n') : ''
   return `
     @namespace epub "http://www.idpf.org/2007/ops";
     @font-face { font-family: "Archivo Variable"; font-style: normal; font-weight: 100 900; font-stretch: 62% 125%;
@@ -34,6 +49,7 @@ async function buildCSS(s) {
     @font-face { font-family: "Archivo Variable"; font-style: italic; font-weight: 100 900; font-stretch: 62% 125%;
       src: url("${abs(archivoLatinItalic)}") format("woff2-variations"); }
     ${customFace}
+    ${latoFaces}
     html {
       color-scheme: ${s.theme === 'oscuro' || s.theme === 'noche' ? 'dark' : 'light'};
       background: ${t.bg} !important;

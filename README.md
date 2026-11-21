@@ -10,7 +10,7 @@ Lector personal de **PDF y EPUB** con subrayados, notas, marcadores y progreso s
 | PDF | [pdf.js](https://github.com/mozilla/pdf.js) con lector propio (`src/reader/pdf-engine.js`). Subrayados como rectángulos relativos a la página. |
 | Datos locales | IndexedDB escrito a mano (`src/db.js`): archivos, libros, anotaciones, ajustes. |
 | Cuenta y sync | Firebase Auth (correo/contraseña) + Firestore, plan gratuito Spark (`src/sync.js`). |
-| Tipografía | Archivo (Omnibus-Type), auto-alojada: funciona sin conexión. |
+| Tipografía | Identidad en Lato; lectura de EPUB en Archivo (o Lato, o una fuente propia). Todo auto-alojado: funciona sin conexión. |
 
 **Identidad de cada libro:** huella SHA-256 de tamaño + primeros y últimos 2 MB del archivo (`fingerprint()` en `src/books.js`). El mismo archivo en el celu y en la PC tiene el mismo ID, aunque tenga otro nombre o esté en otra carpeta.
 

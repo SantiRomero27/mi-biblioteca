@@ -400,6 +400,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
         <div class="set-label">Fuente</div>
         <select class="set-select" data-key="font">
           <option value="archivo" ${settings.font === 'archivo' ? 'selected' : ''}>Archivo</option>
+          <option value="lato" ${settings.font === 'lato' ? 'selected' : ''}>Lato</option>
           <option value="original" ${settings.font === 'original' ? 'selected' : ''}>Original del libro</option>
           ${fonts.map(f => `<option value="custom:${esc(f.name)}" ${settings.font === 'custom:' + f.name ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}
         </select>
@@ -409,6 +410,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
         <div class="set-label">Tamaño</div>
         <div class="stepper"><button data-step="fontSize" data-d="-1">${icon('remove')}</button><span>${settings.fontSize}</span><button data-step="fontSize" data-d="1">${icon('add')}</button></div>
       </div>
+      ${settings.font === 'archivo' || settings.font.startsWith('custom:') ? `
       <div class="set-group">
         <div class="set-label">Grosor <span class="set-val">${settings.weight}</span></div>
         <input type="range" min="250" max="650" step="10" value="${settings.weight}" data-range="weight" />
@@ -416,7 +418,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
       <div class="set-group">
         <div class="set-label">Ancho de letra <span class="set-val">${settings.stretch} %</span></div>
         <input type="range" min="75" max="125" step="1" value="${settings.stretch}" data-range="stretch" />
-      </div>
+      </div>` : ''}
       <div class="set-group">
         <div class="set-label">Interlineado</div>
         <div class="stepper"><button data-step="lineHeight" data-d="-0.05">${icon('remove')}</button><span>${Math.round(settings.lineHeight * 100)} %</span><button data-step="lineHeight" data-d="0.05">${icon('add')}</button></div>
