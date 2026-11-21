@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "description": "Lector personal de PDF y EPUB con subrayados, notas y sincronización",
   "scripts": {
+    "predev": "node scripts/copy-pdfjs.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/copy-pdfjs.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },

@@ -12,7 +12,9 @@ export const DEFAULT_SETTINGS = {
   lineWidth: 'medio',      // estrecho | medio | ancho (largo de línea, EPUB)
   columns: 1,              // 1 | 2 (EPUB en pantallas anchas)
   flow: 'paginated',       // paginated | scrolled (EPUB)
-  pdfZoom: 1,              // 1 = ajustar al ancho
+  pdfZoom: 1,              // 1 = ajustar (al ancho en continuo, a la pantalla en páginas)
+  pdfFlow: 'continuo',     // continuo (vertical) | paginas (horizontal, de a una)
+  pdfSplit: 'auto',        // auto | siempre | nunca — escaneos con dos páginas por hoja
 }
 
 export const THEMES = {

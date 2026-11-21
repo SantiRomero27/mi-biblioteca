@@ -8,6 +8,7 @@ import {
 import { platform } from './platform.js'
 import { isNative, scanFolders, listFolders, pickFolder, removeFolder } from './native.js'
 import { sync, signIn, signUp, signOut, resetPassword, syncNow, signInWithGoogle } from './sync.js'
+import { attachPullToRefresh } from './ui/pull-refresh.js'
 
 let filter = 'todos'
 let query = ''
@@ -63,7 +64,8 @@ export async function renderLibrary(root, { openBook }) {
         <nav class="chips"></nav>
         <div class="scan-status" hidden></div>
       </header>
-      <main class="lib-main"></main>
+      <div class="ptr" aria-hidden="true"><span class="ptr-ic">${icon('refresh')}</span></div>
+      <main class="lib-main is-first"></main>
       <div class="drop-hint">${icon('upload')}<span>Soltá los PDF o EPUB para agregarlos</span></div>
     </div>`)
   root.replaceChildren(el)
@@ -369,7 +371,7 @@ export async function renderLibrary(root, { openBook }) {
       const pct = Math.round((b.progress?.fraction ?? 0) * 100)
       const notes = notesBy.get(b.id) ?? 0
       return `
-      <li class="book" data-id="${b.id}">
+      <li class="book" data-id="${b.id}" style="--i:${Math.min(list.indexOf(b), 12)}">
         <button class="book-open">
           ${coverHTML(b)}
           <div class="book-info">
@@ -423,7 +425,7 @@ export async function renderLibrary(root, { openBook }) {
           : b.toRead ? `<span class="badge" title="Por leer">${icon('schedule')}</span>` : '',
       ].join('')
       return `
-      <li class="tile ${b.hasFile ? '' : 'is-away'}" data-id="${b.id}">
+      <li class="tile ${b.hasFile ? '' : 'is-away'}" data-id="${b.id}" style="--i:${Math.min(list.indexOf(b), 18)}">
         <button class="tile-open" aria-label="${esc(b.title)}">
           <div class="tile-cover">
             ${coverHTML(b)}
@@ -651,8 +653,17 @@ export async function renderLibrary(root, { openBook }) {
   changes.addEventListener('change', onChange)
 
   await render()
+  setTimeout(() => main.classList.remove('is-first'), 900) // la aparición escalonada solo al entrar
   if (isNative && Date.now() - lastScan > 20000) runScan({ quiet: true })
+
+  // Tirar hacia abajo para actualizar (celu): vuelve a buscar en las carpetas y sincroniza
+  const detachPtr = attachPullToRefresh($('.ptr', el), async () => {
+    if (sync.user) syncNow()
+    if (isNative) await runScan({ quiet: false })
+    else { await render(); toast(sync.user ? 'Biblioteca sincronizada' : 'Biblioteca actualizada') }
+  })
   return () => {
+    detachPtr()
     document.removeEventListener('visibilitychange', onVisible)
     changes.removeEventListener('readera-applied', onReadEra)
     changes.removeEventListener('change', onChange)

@@ -19,6 +19,20 @@ const COLOR_BY_MARK = ['amarillo', 'rosa', 'celeste', 'verde', 'amarillo']
 
 const parseJSON = s => { try { return typeof s === 'string' ? JSON.parse(s) : (s ?? {}) } catch { return {} } }
 
+// Hoja real del PDF (desde 0). Si ReadEra dividía páginas dobles, "page" cuenta mitades; la hoja real
+// está en el xPath ("/page[N]/…") o en originPage.
+const realPage = (d, fallback) => {
+  const m = /\/page\[(\d+)\]/.exec(d?.xPath || '')
+  if (m) return Number(m[1])
+  if (typeof d?.originPage === 'number' && d.originPage >= 0) return d.originPage
+  return fallback ?? d?.page ?? 0
+}
+const realPageEnd = (d, start) => {
+  const m = /\/page\[(\d+)\]/.exec(d?.xPathEnd || '')
+  if (m) return Number(m[1])
+  return d?.pageEnd >= 0 && d?.pagesCount && d?.originPage >= 0 ? start + Math.max(0, Math.round((d.pageEnd - d.page) / 2)) : start
+}
+
 // ---------- Leer el .bak ----------
 export async function readBackup(file) {
   const { configure, ZipReader, BlobReader, TextWriter } = await import('./vendor/foliate/vendor/zip.js')
@@ -49,13 +63,15 @@ export async function readBackup(file) {
       format,
       title: data.user_title || data.doc_file_name_title || data.doc_title || '',
       userTitle: data.user_title || '',
-      position: pos.ratio >= 0 ? { ratio: pos.ratio, page: pos.page, pagesCount: pos.pagesCount, offsetY: pos.offsetY } : null,
+      position: pos.ratio >= 0 ? { ratio: pos.ratio, page: pos.page, real: typeof pos.originPage === 'number' && pos.originPage >= 0 ? pos.originPage : null, pagesCount: pos.pagesCount, offsetY: pos.offsetY } : null,
       lastRead: data.doc_last_read_time || 0,
       finished: data.doc_have_read_time > 0,
       favorite: data.doc_favorites_time > 0,
       toRead: data.doc_to_read_time > 0,
       citations: (d.citations ?? []).map(c => ({
         id: c.note_uri,
+        real: realPage(parseJSON(c.note_data), null),
+        realEnd: realPageEnd(parseJSON(c.note_data), realPage(parseJSON(c.note_data), null)),
         text: c.note_body || '',
         note: c.note_extra || '',
         color: COLOR_BY_MARK[c.note_mark ?? 0] ?? 'amarillo',
@@ -66,6 +82,7 @@ export async function readBackup(file) {
       })),
       bookmarks: (d.bookmarks ?? []).map(b => ({
         id: b.note_uri,
+        real: typeof parseJSON(b.note_data).originPage === 'number' && parseJSON(b.note_data).originPage >= 0 ? parseJSON(b.note_data).originPage : null,
         page: b.note_page ?? parseJSON(b.note_data).page ?? 0,
         data: parseJSON(b.note_data),
         createdAt: b.note_insert_time || Date.now(),
@@ -126,6 +143,7 @@ export async function applyPendingFor(bookId) {
 // ---------- Aplicar a un libro ----------
 async function applyEntry(book, file, entry) {
   const result = { placed: 0, unplaced: 0, bookmarks: 0 }
+  const textCache = new Map() // texto ya extraído por página
   const existing = await listAnnotations(book.id)
   const done = new Set(existing.map(a => a.source).filter(Boolean))
 
@@ -151,7 +169,11 @@ async function applyEntry(book, file, entry) {
   if (entry.toRead && !entry.finished && !book.toRead && !book.finished) patch.toRead = true
   if (entry.position && (!(book.progress?.fraction > 0) || entry.lastRead > (book.lastOpenedAt ?? 0))) {
     if (book.format === 'pdf') {
-      const page = Math.min(pageCount, (entry.position.page ?? 0) + 1)
+      const rePages = entry.position.pagesCount || pageCount
+      const page = typeof entry.position.real === 'number' ? Math.min(pageCount, entry.position.real + 1)
+        : rePages !== pageCount
+        ? Math.max(1, Math.min(pageCount, Math.round(((entry.position.page ?? 0) + 0.5) / rePages * pageCount)))
+        : Math.min(pageCount, (entry.position.page ?? 0) + 1)
       const offset = Math.min(0.99, Math.max(0, Number(entry.position.offsetY) || 0))
       patch.progress = { fraction: Number(((page - 1 + offset) / pageCount).toFixed(5)), locator: { page, offset }, label: labelFor(page) }
     } else {
@@ -167,9 +189,20 @@ async function applyEntry(book, file, entry) {
     if (done.has(source) || !c.text) continue
     let locator, fraction
     if (pdf) {
-      const page = Math.min(pageCount, c.page + 1)
-      const pageEnd = Math.min(pageCount, (c.data.pageEnd >= 0 ? c.data.pageEnd : c.page) + 1)
-      const rects = await locateInPdf(pdf, c.text, page, Math.max(page, pageEnd)).catch(() => null)
+      // ReadEra numera desde 0; si dividía páginas dobles, su numeración no coincide con las hojas del PDF.
+      // Se busca primero donde dice ReadEra, después cerca, después en la posición proporcional y por último en todo el libro.
+      const rePages = c.data.pagesCount || entry.position?.pagesCount || pageCount
+      const hasReal = typeof c.real === 'number' && c.real >= 0 && !(c.real === c.page && rePages !== pageCount && !/\/page\[/.test(c.data.xPath || ''))
+      const p0 = Math.min(pageCount, (hasReal ? c.real : c.page) + 1)
+      const p1 = Math.min(pageCount, (hasReal ? (c.realEnd ?? c.real) : (c.data.pageEnd >= 0 ? c.data.pageEnd : c.page)) + 1)
+      const prop = Math.max(1, Math.min(pageCount, Math.round(((c.page + 0.5) / rePages) * pageCount)))
+      const tries = [[p0, Math.max(p0, p1)], [p0 - 2, p1 + 2], [prop - 2, prop + 2], [1, pageCount]]
+      let rects = null
+      for (const [a, b] of tries) {
+        rects = await locateInPdf(pdf, c.text, Math.max(1, a), Math.min(pageCount, b), textCache).catch(() => null)
+        if (rects?.length) break
+      }
+      const page = rects?.[0]?.p ?? p0
       locator = { page, rects: rects ?? [] }
       fraction = (page - 1 + (rects?.[0]?.y ?? 0)) / pageCount
       if (rects?.length) result.placed++; else result.unplaced++
@@ -190,7 +223,11 @@ async function applyEntry(book, file, entry) {
     const source = `readera:${m.id}`
     if (done.has(source)) continue
     if (pdf) {
-      const page = Math.min(pageCount, m.page + 1)
+      const rePages = m.data.pagesCount || pageCount
+      const page = typeof m.real === 'number' ? Math.min(pageCount, m.real + 1)
+        : rePages !== pageCount
+        ? Math.max(1, Math.min(pageCount, Math.round(((m.page + 0.5) / rePages) * pageCount)))
+        : Math.min(pageCount, m.page + 1)
       const offset = Math.min(0.99, Math.max(0, Number(m.data.offsetY) || 0))
       await addAnnotation({ bookId: book.id, kind: 'bookmark', locator: { page, offset }, fraction: (page - 1 + offset) / pageCount, label: labelFor(page), text: `${page} de ${pageCount}`, source, createdAt: m.createdAt })
     } else {
@@ -229,15 +266,18 @@ async function outlineLabels(pdf) {
 // en el mismo formato que los subrayados hechos en la app.
 const norm = s => s.normalize('NFKC').toLowerCase().replace(/[\s­\-‐‑–—]/g, '')
 
-async function locateInPdf(pdf, text, pageFrom, pageTo) {
+async function locateInPdf(pdf, text, pageFrom, pageTo, cache = new Map()) {
   const { pdfjsLib } = await import('./reader/pdfjs.js')
   const chars = [] // { p, item, off }
   const items = [] // por página: { p, vp, items }
   for (let p = pageFrom; p <= pageTo; p++) {
-    const page = await pdf.getPage(p)
-    const vp = page.getViewport({ scale: 1 })
-    const content = await page.getTextContent()
-    const list = content.items.filter(it => typeof it.str === 'string')
+    if (!cache.has(p)) {
+      const page = await pdf.getPage(p)
+      const vp = page.getViewport({ scale: 1 })
+      const content = await page.getTextContent()
+      cache.set(p, { vp, list: content.items.filter(it => typeof it.str === 'string') })
+    }
+    const { vp, list } = cache.get(p)
     items.push({ p, vp, list })
     list.forEach((it, idx) => {
       for (let k = 0; k < it.str.length; k++) {

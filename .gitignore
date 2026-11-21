@@ -2,3 +2,6 @@ node_modules
 dist
 .DS_Store
 *.log
+
+# recursos de pdf.js copiados en cada build
+public/pdfjs

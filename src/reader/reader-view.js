@@ -10,6 +10,8 @@ import {
 import { loadSettings, saveSettings, THEMES, DEFAULT_SETTINGS, listCustomFonts, addCustomFont } from '../settings.js'
 import { createProgressTrack } from './progress-track.js'
 
+const buzz = () => { try { navigator.vibrate?.(12) } catch { /* sin vibración */ } }
+
 export async function renderReader(root, bookId, { onExit, annId = null }) {
   const book = await getBook(bookId)
   if (!book || book.deleted) { onExit(); return () => {} }
@@ -112,6 +114,8 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     onRelocate: pos => { position = pos; updateProgressUI(); scheduleSave() },
     onSelection: sel => sel ? showSelectionPop(sel) : (popMode === 'selection' && hidePop()),
     onAnnotationClick: (id, rect) => showAnnotationPop(id, rect),
+    onZoom: z => update({ pdfZoom: z }),
+    onLoading: f => { const bar = $('.rd-loading-bar span', el); if (bar) bar.style.width = `${Math.round(f * 100)}%` },
     onTap: x => {
       if (!popEl.hidden) return hidePop()
       if (el.classList.contains('panel-open') || el.classList.contains('settings-open')) return closeOverlays()
@@ -122,14 +126,28 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
       el.classList.toggle('chrome-hidden')
     },
   }
-  stage.innerHTML = '<div class="loading">Abriendo…</div>'
+  // Pantalla de apertura: tapa, título y progreso mientras se prepara el libro
+  const coverUrl = book.cover ? URL.createObjectURL(book.cover) : null
+  const loadingEl = h(`
+    <div class="rd-loading">
+      ${coverUrl ? `<img class="rd-loading-cover" src="${coverUrl}" alt="" />` : `<div class="rd-loading-cover is-gen"><span>${esc(book.title)}</span></div>`}
+      <div class="rd-loading-title">${esc(book.title)}</div>
+      <div class="rd-loading-bar"><span></span></div>
+    </div>`)
+  el.append(loadingEl)
+  const hideLoading = () => {
+    loadingEl.classList.add('is-out')
+    setTimeout(() => { loadingEl.remove(); if (coverUrl) URL.revokeObjectURL(coverUrl) }, 350)
+  }
   try {
     const { createPdfEngine } = book.format === 'pdf' ? await import('./pdf-engine.js') : {}
     const { createEpubEngine } = book.format === 'epub' ? await import('./epub-engine.js') : {}
     stage.replaceChildren()
     engine = book.format === 'pdf' ? await createPdfEngine(common) : await createEpubEngine(common)
+    setTimeout(hideLoading, 120)
   } catch (err) {
     console.error(err)
+    hideLoading()
     stage.innerHTML = `<div class="missing"><h2>No se pudo abrir el libro</h2><p>${esc(err.message)}</p></div>`
     wireTop()
     return () => {}
@@ -180,7 +198,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
 
   function stepSize(dir) {
     if (isPdf) {
-      const z = Math.round(Math.min(3, Math.max(0.5, settings.pdfZoom + dir * 0.1)) * 100) / 100
+      const z = Math.round(Math.min(4, Math.max(0.5, settings.pdfZoom * (dir > 0 ? 1.15 : 1 / 1.15))) * 100) / 100
       if (z !== settings.pdfZoom) update({ pdfZoom: z })
     } else {
       const f = Math.min(40, Math.max(12, settings.fontSize + dir))
@@ -344,7 +362,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
   function bookmarkHere() {
     const loc = position.locator
     return annotations.find(a => a.kind === 'bookmark' && !a.deleted && (
-      book.format === 'pdf' ? a.locator?.page === loc?.page : Math.abs((a.fraction ?? -1) - (position.fraction ?? 0)) < 0.003
+      book.format === 'pdf' ? a.locator?.page === loc?.page && (a.locator?.half ?? 0) === (loc?.half ?? 0) : Math.abs((a.fraction ?? -1) - (position.fraction ?? 0)) < 0.003
     ))
   }
   function refreshBookmarkBtn() {
@@ -354,6 +372,9 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     btn.classList.toggle('is-on', on)
   }
   async function toggleBookmark() {
+    buzz()
+    const btn = $('[data-act=bookmark]', el)
+    btn.classList.remove('pop'); void btn.offsetWidth; btn.classList.add('pop')
     const existing = bookmarkHere()
     if (existing) {
       await removeAnnotation(existing.id)
@@ -361,7 +382,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
       toast('Marcador quitado')
     } else {
       const pos = engine.currentLocator() ?? position
-      const locator = book.format === 'pdf' ? { page: pos.locator.page, offset: pos.locator.offset } : pos.locator
+      const locator = book.format === 'pdf' ? { ...pos.locator } : pos.locator
       const ann = await addAnnotation({ bookId, kind: 'bookmark', locator, fraction: pos.fraction ?? 0, label: pos.label ?? '', text: pos.pageLabel ?? '' })
       annotations.push(ann)
       toast('Marcador guardado')
@@ -421,6 +442,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     engine.upsertHighlight(ann)
     engine.clearSelection()
     hidePop()
+    buzz()
     if (el.classList.contains('panel-open')) renderPanel()
   }
 
@@ -539,10 +561,18 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
         ${seg('columns', [['1', 'Una'], ['2', 'Dos']])}
       </div>` : `
       <div class="set-group">
+        <div class="set-label">Paso de página</div>
+        ${seg('pdfFlow', [['continuo', 'Continuo'], ['paginas', 'Páginas']])}
+      </div>
+      <div class="set-group">
+        <div class="set-label">Páginas dobles (escaneos)</div>
+        ${seg('pdfSplit', [['auto', 'Auto'], ['siempre', 'Dividir'], ['nunca', 'Enteras']])}
+      </div>
+      <div class="set-group">
         <div class="set-label">Zoom</div>
         <div class="stepper"><button data-step="pdfZoom" data-d="-0.1">${icon('remove')}</button><span>${Math.round(settings.pdfZoom * 100)} %</span><button data-step="pdfZoom" data-d="0.1">${icon('add')}</button></div>
       </div>
-      <p class="set-hint">En PDF la tipografía es parte de la página, por eso no se puede cambiar.</p>`}
+      <p class="set-hint">Pellizcá o tocá dos veces para acercar. En PDF la tipografía es parte de la página, por eso no se puede cambiar.</p>`}
     `
     $$('[data-theme-pick]', box).forEach(b => b.onclick = () => update({ theme: b.dataset.themePick }))
     $$('.seg button', box).forEach(b => b.onclick = () => {
@@ -552,7 +582,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     })
     $$('[data-step]', box).forEach(b => b.onclick = () => {
       const k = b.dataset.step, d = Number(b.dataset.d)
-      const limits = { fontSize: [12, 40], lineHeight: [1, 2.4], pdfZoom: [0.5, 3] }
+      const limits = { fontSize: [12, 40], lineHeight: [1, 2.4], pdfZoom: [0.5, 4] }
       const [lo, hi] = limits[k]
       update({ [k]: Math.round(Math.min(hi, Math.max(lo, settings[k] + d)) * 100) / 100 })
     })
