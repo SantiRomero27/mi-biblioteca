@@ -93,8 +93,27 @@ export async function readBackup(file) {
 }
 
 // ---------- Pendientes ----------
-export const listPending = () => kv.get(PENDING_KEY, [])
-const savePending = list => kv.set(PENDING_KEY, list)
+// Se guardan en la tabla "readera" (una fila por archivo) y se sincronizan con la cuenta:
+// si importás la copia en el celu, la PC también aplica los datos cuando tiene ese archivo, y viceversa.
+let migrated = false
+async function migrateFromKv() {
+  if (migrated) return
+  migrated = true
+  const old = await kv.get(PENDING_KEY, null)
+  if (Array.isArray(old) && old.length) {
+    for (const e of old) if (!(await db.get('readera', e.sha1))) await savePendingEntry(e)
+  }
+  if (old) await kv.set(PENDING_KEY, null)
+}
+const savePendingEntry = e => db.put('readera', { ...e, id: e.sha1, applied: false, updatedAt: Date.now(), _dirty: true })
+const markApplied = async sha1 => {
+  const e = await db.get('readera', sha1)
+  if (e) await db.put('readera', { ...e, applied: true, updatedAt: Date.now(), _dirty: true })
+}
+export async function listPending() {
+  await migrateFromKv()
+  return (await db.all('readera')).filter(e => !e.applied && !e.deleted)
+}
 
 async function sha1Hex(blob) {
   const hash = await crypto.subtle.digest('SHA-1', await blob.arrayBuffer())
@@ -104,9 +123,10 @@ async function sha1Hex(blob) {
 // Importa la copia: guarda los datos como pendientes y aplica los de los libros que ya están en la biblioteca
 export async function importBackup(file, onProgress) {
   const docs = await readBackup(file)
+  await migrateFromKv()
+  // importar de nuevo vuelve a habilitar todo (no duplica: cada cita lleva su identificador de ReadEra)
+  for (const d of docs) await savePendingEntry(d)
   const pending = new Map((await listPending()).map(p => [p.sha1, p]))
-  for (const d of docs) pending.set(d.sha1, d)
-  await savePending([...pending.values()])
 
   const stats = { books: docs.length, applied: 0, placed: 0, unplaced: 0, bookmarks: 0 }
   const books = (await db.all('books')).filter(b => !b.deleted)
@@ -136,8 +156,29 @@ export async function applyPendingFor(bookId) {
   const entry = sameSize.find(p => p.sha1 === sha1)
   if (!entry) return null
   const result = await applyEntry(book, file, entry)
-  await savePending((await listPending()).filter(p => p.sha1 !== sha1))
+  await markApplied(sha1)
   return result
+}
+
+// Aplica lo pendiente a todos los libros de este dispositivo (por ejemplo, cuando llegan datos de ReadEra
+// importados en otro dispositivo). Solo se calcula la huella de los archivos cuyo tamaño coincide.
+let running = null
+export function applyToLocalBooks() {
+  if (running) return running
+  running = (async () => {
+    const pending = await listPending()
+    if (!pending.length) return []
+    const sizes = new Set(pending.map(p => p.size))
+    const files = new Set((await db.all('files')).map(f => f.id))
+    const books = (await db.all('books')).filter(b => !b.deleted && files.has(b.id) && sizes.has(b.size))
+    const done = []
+    for (const b of books) {
+      const r = await applyPendingFor(b.id).catch(e => { console.error(e); return null })
+      if (r) done.push({ id: b.id, ...r })
+    }
+    return done
+  })().finally(() => { running = null })
+  return running
 }
 
 // ---------- Aplicar a un libro ----------

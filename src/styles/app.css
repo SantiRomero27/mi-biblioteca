@@ -287,6 +287,8 @@ button { background: none; border: 0; padding: 0; cursor: pointer; }
 .modal-body { margin: 0 0 12px; line-height: 1.5; color: var(--muted); }
 .modal-body strong { color: var(--text); }
 .modal-hint { font-size: 13px; color: var(--muted); line-height: 1.45; }
+.modal-hint.warn { color: var(--danger); }
+.modal-hint code { font-size: 12px; background: rgba(127,127,127,.15); padding: 1px 4px; border-radius: 4px; }
 .modal-quote {
   margin: 0 0 12px; padding: 8px 12px; border-left: 3px solid var(--accent);
   background: rgba(232,163,61,.09); font-size: 14px; line-height: 1.45; color: var(--muted);

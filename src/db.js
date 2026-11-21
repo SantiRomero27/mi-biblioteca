@@ -4,9 +4,10 @@
 //   books        { id, title, author, ... }     → metadatos + progreso (se sincroniza)
 //   annotations  { id, bookId, kind, ... }      → subrayados, notas y marcadores (se sincroniza)
 //   kv           { key, value }                 → ajustes y fuentes propias (local)
+//   readera      { id: sha1, ... }              → datos de ReadEra pendientes de aplicar (se sincroniza)
 
 const DB_NAME = 'mi-biblioteca'
-const VERSION = 1
+const VERSION = 2
 
 let dbPromise
 
@@ -23,6 +24,8 @@ function openDB() {
         s.createIndex('bookId', 'bookId')
       }
       if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv', { keyPath: 'key' })
+      // v2: datos importados de ReadEra que esperan su archivo (se sincronizan entre dispositivos)
+      if (!db.objectStoreNames.contains('readera')) db.createObjectStore('readera', { keyPath: 'id' })
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)

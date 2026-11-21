@@ -161,6 +161,22 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
 
   annotations = await listAnnotations(bookId)
   engine.setAnnotations(annotations)
+
+  // ¿Hay datos de ReadEra esperando este archivo? Se aplican al abrirlo.
+  const reloadAnnotations = async () => {
+    annotations = await listAnnotations(bookId)
+    engine.setAnnotations(annotations)
+    refreshBookmarkBtn()
+    if (el.classList.contains('panel-open')) renderPanel()
+  }
+  import('../readera.js')
+    .then(m => m.applyPendingFor(bookId))
+    .then(async r => {
+      if (!r) return
+      await reloadAnnotations()
+      toast(`Datos de ReadEra aplicados: ${r.placed + r.unplaced} citas${r.bookmarks ? `, ${r.bookmarks} marcadores` : ''}`)
+    })
+    .catch(e => console.error(e))
   updateBook(bookId, { lastOpenedAt: Date.now() })
   if (annId) {
     const target = annotations.find(a => a.id === annId)
@@ -677,6 +693,8 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
   stage.addEventListener('keydown', onKey)
 
   // ---------- Cambios que llegan de otro dispositivo ----------
+  const onReadEraApplied = e => { if (e.detail?.id === bookId) reloadAnnotations() }
+  changes.addEventListener('readera-applied', onReadEraApplied)
   const onChange = async e => {
     const { store, value, origin } = e.detail
     if (origin !== 'remote') return
@@ -702,6 +720,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     document.removeEventListener('fullscreenchange', onFs)
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
     changes.removeEventListener('change', onChange)
+    changes.removeEventListener('readera-applied', onReadEraApplied)
     engine?.destroy()
   }
 }

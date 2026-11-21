@@ -103,7 +103,7 @@ export async function importFile(file) {
   if (existing?.deleted) existing = null // se había eliminado: vuelve como libro nuevo
   const hasFile = await db.get('files', id)
 
-  if (existing && hasFile) return { book: existing, status: 'existente' }
+  if (existing && hasFile) { applyReadEra(id); return { book: existing, status: 'existente' } }
 
   const meta = format === 'epub' ? await readEpubMeta(file) : await readPdfMeta(file)
   await db.put('files', { id, blob: file, name: file.name })

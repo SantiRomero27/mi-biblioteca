@@ -14,12 +14,14 @@ import { isNative, nativeGoogleToken } from './native.js'
 import { db, changes } from './db.js'
 import { mergeBook, sameBook } from './merge.js'
 
-const STORES = ['books', 'annotations']
+const STORES = ['books', 'annotations']   // imprescindibles
+const EXTRA = ['readera']                  // opcionales: si las reglas no las permiten, el resto sigue
 
 export const sync = new EventTarget()
 sync.state = 'off'     // off | signed-out | syncing | ok | offline | error
 sync.user = null
 sync.lastError = ''
+sync.extraBlocked = false
 
 const setState = (state, err = '') => {
   sync.state = state
@@ -52,7 +54,7 @@ export function initSync() {
   })
   changes.addEventListener('change', e => {
     const { store, value, origin } = e.detail
-    if (origin === 'local' && STORES.includes(store) && value?._dirty) schedulePush()
+    if (origin === 'local' && (STORES.includes(store) || EXTRA.includes(store)) && value?._dirty) schedulePush()
   })
   window.addEventListener('online', () => { if (uid) { setState('syncing'); schedulePush(0) } })
   window.addEventListener('offline', () => { if (uid) setState('offline') })
@@ -75,6 +77,28 @@ function start(user) {
       setState('error', err.message)
     }))
   }
+  for (const store of EXTRA) {
+    unsubs.push(onSnapshot(collection(fs, 'users', uid, store), async snap => {
+      sync.extraBlocked = false
+      await merge(store, snap)
+      if (store === 'readera' && snap.docChanges().length) scheduleReadEra()
+    }, err => {
+      console.warn(`Sin acceso a ${store} (¿faltan actualizar las reglas de Firestore?)`, err.message)
+      sync.extraBlocked = true
+    }))
+  }
+}
+
+// Datos de ReadEra que llegan de otro dispositivo: se aplican a los libros de acá
+let readEraTimer
+function scheduleReadEra() {
+  clearTimeout(readEraTimer)
+  readEraTimer = setTimeout(() => {
+    import('./readera.js')
+      .then(m => m.applyToLocalBooks())
+      .then(done => { for (const r of done ?? []) changes.dispatchEvent(new CustomEvent('readera-applied', { detail: r })) })
+      .catch(e => console.error(e))
+  }, 1500)
 }
 
 function stop() {
@@ -140,6 +164,25 @@ async function pushDirty() {
       for (const [store, rec] of chunk) {
         const now = await db.get(store, rec.id)
         if (now && now.updatedAt === rec.updatedAt) await db.put(store, { ...now, _dirty: false }, 'sync')
+      }
+    }
+    // tablas opcionales, en su propio lote: si las reglas no las permiten no bloquean lo importante
+    for (const store of EXTRA) {
+      const recs = (await db.all(store)).filter(r => r._dirty)
+      if (!recs.length || sync.extraBlocked) continue
+      try {
+        for (let i = 0; i < recs.length; i += 200) {
+          const batch = writeBatch(fs)
+          for (const rec of recs.slice(i, i + 200)) batch.set(doc(fs, 'users', uid, store, rec.id), clean(store, rec))
+          await batch.commit()
+        }
+        for (const rec of recs) {
+          const now = await db.get(store, rec.id)
+          if (now && now.updatedAt === rec.updatedAt) await db.put(store, { ...now, _dirty: false }, 'sync')
+        }
+      } catch (e) {
+        console.warn(`No se pudo subir ${store}`, e.message)
+        sync.extraBlocked = true
       }
     }
     setState('ok')

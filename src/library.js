@@ -589,6 +589,8 @@ export async function renderLibrary(root, { openBook }) {
           : signedIn ? `
             <p class="modal-body"><strong>${esc(sync.user.email)}</strong></p>
             <p class="sync-state" data-state="${s}">${STATE_LABEL[s]}${sync.lastError && s === 'error' ? `<br><small>${esc(sync.lastError)}</small>` : ''}</p>
+            <p class="modal-hint" data-counts>…</p>
+            ${sync.extraBlocked ? `<p class="modal-hint warn">Los datos importados de ReadEra no se están compartiendo entre dispositivos: falta actualizar las reglas de Firestore (agregar <code>'readera'</code> a la lista de colecciones).</p>` : ''}
             <p class="modal-hint">Se sincronizan el progreso, los subrayados, las notas y los marcadores. Los archivos de los libros quedan en cada dispositivo.</p>
             <div class="modal-actions">
               <button class="btn-text" data-act="sync">Sincronizar ahora</button>
@@ -616,6 +618,11 @@ export async function renderLibrary(root, { openBook }) {
     const close = () => sheet.remove()
     sheet.addEventListener('click', e => { if (e.target === sheet) close() })
     document.body.append(sheet)
+    const countsEl = $('[data-counts]', sheet)
+    if (countsEl) Promise.all([listBooks(), listAnnotations()]).then(([bs, as]) => {
+      const notes = as.filter(a => a.kind === 'highlight').length
+      countsEl.textContent = `En este dispositivo: ${bs.length} libros · ${notes} subrayados y notas · ${as.length - notes} marcadores.`
+    })
     $('[data-act=close]', sheet)?.addEventListener('click', close)
     $('[data-act=sync]', sheet)?.addEventListener('click', () => { syncNow(); toast('Sincronizando…'); close() })
     $('[data-act=logout]', sheet)?.addEventListener('click', async () => { await signOut(); close(); toast('Sesión cerrada') })
