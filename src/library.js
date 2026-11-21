@@ -1,7 +1,7 @@
 // Biblioteca: lista de libros estilo ReadEra, filtros, citas y cuenta.
 import { $, $$, h, esc, toast, confirmDialog } from './ui/dom.js'
 import { icon } from './ui/icons.js'
-import { changes } from './db.js'
+import { changes, kv } from './db.js'
 import {
   listBooks, importFile, updateBook, deleteBook, removeLocalFile, listAnnotations, formatSize, COLORS,
 } from './books.js'
@@ -45,6 +45,7 @@ export async function renderLibrary(root, { openBook }) {
       <header class="lib-top">
         <div class="lib-bar">
           <h1 class="lib-title">Mi biblioteca</h1>
+          <button class="icon-btn" data-act="view" title="Cambiar vista"></button>
           <button class="icon-btn" data-act="search" title="Buscar">${icon('search')}</button>
           ${isNative
             ? `<button class="icon-btn" data-act="folders" title="Carpetas de libros">${icon('folder')}</button>`
@@ -68,6 +69,21 @@ export async function renderLibrary(root, { openBook }) {
   root.replaceChildren(el)
 
   const main = $('.lib-main', el)
+
+  // ---------- Vista: tapas (cuadrícula) o lista ----------
+  let view = await kv.get('lib-view', 'tapas')
+  const viewBtn = $('[data-act=view]', el)
+  const paintView = () => {
+    viewBtn.innerHTML = icon(view === 'tapas' ? 'list' : 'grid')
+    viewBtn.title = view === 'tapas' ? 'Ver como lista' : 'Ver tapas'
+  }
+  paintView()
+  viewBtn.onclick = async () => {
+    view = view === 'tapas' ? 'lista' : 'tapas'
+    await kv.set('lib-view', view)
+    paintView()
+    render()
+  }
 
   // ---------- Agregar ----------
   async function addFiles(files) {
@@ -322,6 +338,8 @@ export async function renderLibrary(root, { openBook }) {
       return
     }
 
+    if (view === 'tapas') return renderTiles(list, notesBy)
+
     main.innerHTML = `<ul class="books">${list.map(b => {
       const pct = Math.round((b.progress?.fraction ?? 0) * 100)
       const notes = notesBy.get(b.id) ?? 0
@@ -370,6 +388,42 @@ export async function renderLibrary(root, { openBook }) {
     })
   }
 
+  function renderTiles(list, notesBy) {
+    main.innerHTML = `<ul class="tiles">${list.map(b => {
+      const pct = Math.round((b.progress?.fraction ?? 0) * 100)
+      const notes = notesBy.get(b.id) ?? 0
+      const badges = [
+        b.favorite ? `<span class="badge is-fav" title="Favorito">${icon('star')}</span>` : '',
+        b.finished ? `<span class="badge" title="Terminado">${icon('doneAll')}</span>`
+          : b.toRead ? `<span class="badge" title="Por leer">${icon('schedule')}</span>` : '',
+      ].join('')
+      return `
+      <li class="tile ${b.hasFile ? '' : 'is-away'}" data-id="${b.id}">
+        <button class="tile-open" aria-label="${esc(b.title)}">
+          <div class="tile-cover">
+            ${coverHTML(b)}
+            ${badges ? `<div class="badges">${badges}</div>` : ''}
+            ${notes ? `<span class="tile-notes" title="${notes} subrayados">${icon('notes')}${notes}</span>` : ''}
+            ${b.hasFile ? '' : `<span class="tile-away" title="No está en este dispositivo">${icon('cloud')}</span>`}
+            ${pct || b.finished ? `<div class="tile-bar"><span style="width:${b.finished ? 100 : pct}%"></span></div>` : ''}
+          </div>
+        </button>
+        <div class="tile-info">
+          <div class="tile-text">
+            <h3 class="tile-title">${esc(b.title)}</h3>
+            <p class="tile-sub">${b.finished ? 'Terminado' : pct ? `${pct} %` : b.toRead ? 'Por leer' : esc(b.author || b.format.toUpperCase())}</p>
+          </div>
+          <button class="icon-btn sm" data-act="more" title="Más opciones">${icon('more')}</button>
+        </div>
+      </li>`
+    }).join('')}</ul>`
+    $$('.tile', main).forEach(li => {
+      const b = list.find(x => x.id === li.dataset.id)
+      $('.tile-open', li).onclick = () => openBook(b.id)
+      $('[data-act=more]', li).onclick = e => bookMenu(e.currentTarget, b, true)
+    })
+  }
+
   function renderQuotes(books, anns) {
     const byId = new Map(books.map(b => [b.id, b]))
     let quotes = anns.filter(a => a.kind === 'highlight' && byId.has(a.bookId))
@@ -403,11 +457,18 @@ export async function renderLibrary(root, { openBook }) {
   }
 
   // ---------- Menú del libro ----------
-  function bookMenu(anchor, b) {
+  function bookMenu(anchor, b, withStates = false) {
     $('.menu-pop')?.remove()
     const r = anchor.getBoundingClientRect()
     const menu = h(`
       <div class="menu-pop" role="menu">
+        ${withStates ? `
+        <div class="menu-head"><strong>${esc(b.title)}</strong>${b.author ? `<span>${esc(b.author)}</span>` : ''}</div>
+        <button data-m="fav">${b.favorite ? 'Quitar de favoritos' : 'Agregar a favoritos'}</button>
+        <button data-m="toread">${b.toRead && !b.finished ? 'Quitar de Por leer' : 'Agregar a Por leer'}</button>
+        <button data-m="done">${b.finished ? 'Marcar como no terminado' : 'Marcar como terminado'}</button>
+        <button data-m="notes">Ver sus citas</button>
+        <hr />` : ''}
         <button data-m="edit">Editar nombre y descripción</button>
         ${b.fileKind === 'copia' ? `<button data-m="local">Quitar de este dispositivo</button>` : ''}
         <button data-m="delete" class="danger">Eliminar de la biblioteca</button>
@@ -419,6 +480,16 @@ export async function renderLibrary(root, { openBook }) {
     const outside = e => { if (!menu.contains(e.target)) close() }
     setTimeout(() => document.addEventListener('pointerdown', outside, true))
     $('[data-m=edit]', menu).onclick = () => { close(); editBook(b) }
+    $('[data-m=fav]', menu)?.addEventListener('click', async () => { close(); await updateBook(b.id, { favorite: !b.favorite }); render() })
+    $('[data-m=toread]', menu)?.addEventListener('click', async () => {
+      close()
+      const on = !(b.toRead && !b.finished)
+      await updateBook(b.id, on ? { toRead: true, finished: false } : { toRead: false }); render()
+    })
+    $('[data-m=done]', menu)?.addEventListener('click', async () => {
+      close(); await updateBook(b.id, b.finished ? { finished: false } : { finished: true, toRead: false }); render()
+    })
+    $('[data-m=notes]', menu)?.addEventListener('click', () => { close(); filter = 'citas'; query = b.title.toLowerCase(); render() })
     $('[data-m=local]', menu)?.addEventListener('click', async () => {
       close()
       const ok = await confirmDialog({ title: 'Quitar de este dispositivo', body: 'Se borra el archivo de acá. El progreso, las notas y los subrayados quedan en tu cuenta.', ok: 'Quitar' })

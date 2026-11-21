@@ -147,7 +147,7 @@ button { background: none; border: 0; padding: 0; cursor: pointer; }
 }
 .book-open { display: flex; gap: 14px; width: 100%; text-align: left; align-items: flex-start; }
 .cover {
-  width: 66px; height: 96px; flex: none; object-fit: cover;
+  width: 84px; height: 124px; flex: none; object-fit: cover;
   border-radius: 3px 5px 5px 3px;
   box-shadow: 0 1px 2px rgba(0,0,0,.25), inset 3px 0 0 rgba(0,0,0,.12);
   background: #ddd;
@@ -174,7 +174,7 @@ button { background: none; border: 0; padding: 0; cursor: pointer; }
 .bar span { display: block; height: 100%; background: var(--accent); }
 .pct { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 70px; text-align: right; }
 
-.book-actions { display: flex; justify-content: flex-start; gap: 4px; margin: 4px 0 0 66px; padding-left: 4px; color: var(--muted); }
+.book-actions { display: flex; justify-content: flex-start; gap: 4px; margin: 4px 0 0 84px; padding-left: 4px; color: var(--muted); }
 .notes-count span {
   position: absolute; top: 3px; right: 1px;
   min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px;
@@ -213,6 +213,58 @@ button { background: none; border: 0; padding: 0; cursor: pointer; }
 .menu-pop button { display: block; width: 100%; text-align: left; padding: 11px 12px; border-radius: 6px; }
 .menu-pop button:hover { background: rgba(127,127,127,.12); }
 .menu-pop .danger { color: var(--danger); }
+.menu-pop hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+.menu-head { padding: 8px 12px 6px; display: flex; flex-direction: column; gap: 2px; max-width: 280px; }
+.menu-head strong { font-weight: 700; line-height: 1.25; }
+.menu-head span { font-size: 12.5px; color: var(--muted); }
+
+/* ---------- Vista de tapas ---------- */
+.tiles {
+  list-style: none; margin: 0; padding: 18px 14px 8px;
+  display: grid; gap: 22px 14px;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+}
+@media (min-width: 560px) { .tiles { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 28px 20px; padding: 24px 16px; } }
+.tile { min-width: 0; }
+.tile-open { display: block; width: 100%; }
+.tile-cover {
+  position: relative; aspect-ratio: 2 / 3; border-radius: 4px 7px 7px 4px; overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0,0,0,.2), 0 8px 20px -6px rgba(0,0,0,.35);
+  transition: transform .18s ease, box-shadow .18s ease;
+  background: #ddd;
+}
+.tile-cover::after { /* lomo */
+  content: ''; position: absolute; inset: 0 auto 0 0; width: 6px;
+  background: linear-gradient(90deg, rgba(0,0,0,.22), rgba(255,255,255,.08) 60%, transparent);
+  pointer-events: none;
+}
+.tile-open:hover .tile-cover, .tile-open:focus-visible .tile-cover { transform: translateY(-3px); box-shadow: 0 2px 4px rgba(0,0,0,.2), 0 14px 28px -8px rgba(0,0,0,.45); }
+.tile-cover .cover { width: 100%; height: 100%; border-radius: 0; box-shadow: none; display: block; }
+.tile-cover .cover-gen { padding: 14% 10% 10% 16%; }
+.tile-cover .cover-gen span { font-size: clamp(13px, 3.6vw, 17px); -webkit-line-clamp: 6; line-height: 1.12; }
+.tile-cover .cover-gen small { font-size: 11px; }
+.tile.is-away .tile-cover .cover { filter: saturate(.5) brightness(.92); }
+.badges { position: absolute; top: 6px; right: 6px; display: flex; gap: 4px; }
+.badge { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: rgba(12,30,36,.78); color: #fff; backdrop-filter: blur(4px); }
+.badge .ic { width: 15px; height: 15px; }
+.badge.is-fav { color: var(--accent); }
+.tile-notes, .tile-away {
+  position: absolute; left: 6px; bottom: 9px; display: inline-flex; align-items: center; gap: 3px;
+  padding: 2px 7px 2px 5px; border-radius: 999px; background: rgba(12,30,36,.78); color: #fff;
+  font-size: 11.5px; font-weight: 700; backdrop-filter: blur(4px);
+}
+.tile-notes .ic, .tile-away .ic { width: 14px; height: 14px; }
+.tile-away { left: auto; right: 6px; padding: 3px; }
+.tile-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(0,0,0,.35); }
+.tile-bar span { display: block; height: 100%; background: var(--accent); }
+.tile-info { display: flex; align-items: flex-start; gap: 2px; margin-top: 9px; }
+.tile-text { flex: 1; min-width: 0; }
+.tile-title {
+  margin: 0; font-size: 14px; line-height: 1.25; font-weight: 700;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.tile-sub { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile-info .icon-btn { margin: -8px -10px 0 0; color: var(--muted); flex: none; }
 
 /* ============================================================
    Modales y avisos

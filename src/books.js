@@ -41,6 +41,8 @@ const plainText = (html, max = 800) => {
   if (!html) return ''
   const doc = new DOMParser().parseFromString(String(html), 'text/html')
   const t = (doc.body.textContent || '').replace(/\s+/g, ' ').trim()
+  // valores de relleno que dejan algunos programas al generar el archivo
+  if (t.length < 12 || /^(unspecified|untitled|none|null|n\/a|subject|sin título|microsoft word)/i.test(t)) return ''
   return t.length > max ? t.slice(0, max - 1) + '…' : t
 }
 
