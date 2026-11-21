@@ -6,6 +6,7 @@ import { initializeApp } from 'firebase/app'
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
   signOut as fbSignOut, sendPasswordResetEmail,
+  GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
 } from 'firebase/auth'
 import { getFirestore, collection, doc, onSnapshot, writeBatch } from 'firebase/firestore'
 import { firebaseConfig } from './firebase-config.js'
@@ -35,6 +36,11 @@ export function initSync() {
   auth = getAuth(app)
   fs = getFirestore(app)
   setState('signed-out')
+  // Si el ingreso con Google fue por redirección, acá se completa
+  getRedirectResult(auth).catch(e => {
+    sync.lastError = friendly(e)
+    sync.dispatchEvent(new Event('auth-error'))
+  })
   onAuthStateChanged(auth, user => {
     stop()
     sync.user = user
@@ -138,7 +144,11 @@ const ERRORS = {
   'auth/wrong-password': 'Contraseña incorrecta.',
   'auth/too-many-requests': 'Demasiados intentos. Esperá un rato y probá de nuevo.',
   'auth/network-request-failed': 'Sin conexión. Probá cuando tengas internet.',
-  'auth/operation-not-allowed': 'El ingreso con correo no está habilitado en Firebase (Authentication → Correo/contraseña).',
+  'auth/operation-not-allowed': 'Ese método de ingreso no está habilitado en Firebase (Authentication → Método de acceso).',
+  'auth/unauthorized-domain': 'Este dominio no está autorizado en Firebase (Authentication → Configuración → Dominios autorizados).',
+  'auth/account-exists-with-different-credential': 'Ese correo ya tiene cuenta con contraseña. Ingresá con correo y contraseña.',
+  'auth/popup-closed-by-user': '',
+  'auth/cancelled-popup-request': '',
 }
 const friendly = err => ERRORS[err?.code] ?? err?.message ?? 'Algo salió mal.'
 
@@ -146,6 +156,22 @@ export async function signIn(email, password) {
   try { await signInWithEmailAndPassword(auth, email, password) }
   catch (e) { throw new Error(friendly(e)) }
 }
+// Google: ventana emergente; si el navegador la bloquea, redirección a la página de Google
+export async function signInWithGoogle() {
+  const provider = new GoogleAuthProvider()
+  provider.setCustomParameters({ prompt: 'select_account' })
+  try {
+    await signInWithPopup(auth, provider)
+  } catch (e) {
+    if (e?.code === 'auth/popup-blocked' || e?.code === 'auth/operation-not-supported-in-this-environment') {
+      return signInWithRedirect(auth, provider)
+    }
+    const msg = friendly(e)
+    if (msg) throw new Error(msg)
+    throw Object.assign(new Error(''), { cancelled: true })
+  }
+}
+
 export async function signUp(email, password) {
   try { await createUserWithEmailAndPassword(auth, email, password) }
   catch (e) { throw new Error(friendly(e)) }

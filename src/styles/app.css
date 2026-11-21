@@ -226,6 +226,15 @@ button { background: none; border: 0; padding: 0; cursor: pointer; }
 .modal-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 4px; margin-top: 12px; }
 .login label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 .login label input { margin-top: 5px; font-size: 15px; color: var(--text); }
+.btn-google {
+  width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 11px 16px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--card); font-weight: 600; font-stretch: 95%;
+}
+.btn-google:hover { background: rgba(127,127,127,.08); }
+.btn-google svg { width: 20px; height: 20px; }
+.or { display: flex; align-items: center; gap: 10px; margin: 16px 0 12px; color: var(--muted); font-size: 12.5px; }
+.or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .form-error { color: var(--danger); font-size: 13.5px; margin: 0; }
 .sync-state { display: inline-flex; padding: 5px 10px; border-radius: 999px; background: rgba(127,127,127,.12); font-size: 13px; font-weight: 550; margin: 0 0 6px; }
 .sync-state[data-state="ok"] { background: rgba(80,160,90,.16); color: #2f7a3a; }
