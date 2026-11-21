@@ -4,7 +4,7 @@ import { $, $$, h, esc, toast, promptNote, confirmDialog } from '../ui/dom.js'
 import { icon } from '../ui/icons.js'
 import { changes } from '../db.js'
 import {
-  getBook, getFile, updateBook, importFile, listAnnotations, addAnnotation,
+  getBook, getFile, loadFileBlob, updateBook, importFile, listAnnotations, addAnnotation,
   updateAnnotation, removeAnnotation, COLORS,
 } from '../books.js'
 import { loadSettings, saveSettings, THEMES, DEFAULT_SETTINGS, listCustomFonts, addCustomFont } from '../settings.js'
@@ -75,7 +75,8 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
 
   // ---------- Archivo ----------
   const fileRow = await getFile(bookId)
-  if (!fileRow) {
+  const bookFile = fileRow ? await loadFileBlob(fileRow).catch(() => null) : null
+  if (!bookFile) {
     stage.innerHTML = `
       <div class="missing">
         ${icon('folder', 'missing-ic')}
@@ -105,7 +106,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
   // ---------- Motor ----------
   const common = {
     host: stage,
-    file: fileRow.blob,
+    file: bookFile,
     settings,
     initialLocator: book.progress?.locator ?? null,
     onRelocate: pos => { position = pos; updateProgressUI(); scheduleSave() },

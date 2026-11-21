@@ -1,0 +1,8 @@
+{
+  "appId": "com.santiromero.mibiblioteca",
+  "appName": "Mi biblioteca",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#123f4b"
+  }
+}

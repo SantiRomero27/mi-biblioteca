@@ -8,6 +8,7 @@ import './styles/pdf-text-layer.css'
 import { renderLibrary } from './library.js'
 import { renderReader } from './reader/reader-view.js'
 import { initSync } from './sync.js'
+import { isNative } from './native.js'
 
 const root = document.getElementById('app')
 let cleanup = null
@@ -25,6 +26,7 @@ async function route() {
   }
 }
 
+if (isNative) document.documentElement.classList.add('is-native')
 window.addEventListener('hashchange', route)
 initSync()
 route()
@@ -33,6 +35,6 @@ route()
 navigator.storage?.persist?.()
 
 // Funcionamiento offline en la web (en la app Android los archivos ya vienen dentro)
-if (import.meta.env.PROD && 'serviceWorker' in navigator && location.protocol === 'https:') {
+if (import.meta.env.PROD && !isNative && 'serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('./sw.js').catch(() => {})
 }

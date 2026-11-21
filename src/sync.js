@@ -4,12 +4,13 @@
 // así nada se pierde si leés sin conexión.
 import { initializeApp } from 'firebase/app'
 import {
-  getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+  getAuth, initializeAuth, indexedDBLocalPersistence, signInWithCredential, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
   signOut as fbSignOut, sendPasswordResetEmail,
   GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
 } from 'firebase/auth'
 import { getFirestore, collection, doc, onSnapshot, writeBatch } from 'firebase/firestore'
-import { firebaseConfig } from './firebase-config.js'
+import { firebaseConfig, googleWebClientId } from './firebase-config.js'
+import { isNative, nativeGoogleToken } from './native.js'
 import { db, changes } from './db.js'
 
 const STORES = ['books', 'annotations']
@@ -33,11 +34,12 @@ let pushing = false
 export function initSync() {
   if (!firebaseConfig?.apiKey) return setState('off')
   const app = initializeApp(firebaseConfig)
-  auth = getAuth(app)
+  // En Android no hay ventanas emergentes ni redirecciones: sesión guardada en IndexedDB y login nativo
+  auth = isNative ? initializeAuth(app, { persistence: indexedDBLocalPersistence }) : getAuth(app)
   fs = getFirestore(app)
   setState('signed-out')
-  // Si el ingreso con Google fue por redirección, acá se completa
-  getRedirectResult(auth).catch(e => {
+  // Si el ingreso con Google fue por redirección (web), acá se completa
+  if (!isNative) getRedirectResult(auth).catch(e => {
     sync.lastError = friendly(e)
     sync.dispatchEvent(new Event('auth-error'))
   })
@@ -158,6 +160,17 @@ export async function signIn(email, password) {
 }
 // Google: ventana emergente; si el navegador la bloquea, redirección a la página de Google
 export async function signInWithGoogle() {
+  if (isNative) {
+    if (!googleWebClientId) throw new Error('Falta configurar el ID de cliente web de Google en la app.')
+    try {
+      const idToken = await nativeGoogleToken(googleWebClientId)
+      await signInWithCredential(auth, GoogleAuthProvider.credential(idToken))
+      return
+    } catch (e) {
+      if (e?.message === 'cancelled' || e?.code === 'cancelled') throw Object.assign(new Error(''), { cancelled: true })
+      throw new Error(friendly(e) || e?.message || 'No se pudo ingresar con Google')
+    }
+  }
   const provider = new GoogleAuthProvider()
   provider.setCustomParameters({ prompt: 'select_account' })
   try {

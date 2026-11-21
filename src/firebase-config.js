@@ -8,3 +8,7 @@ export const firebaseConfig = {
   messagingSenderId: '401266204478',
   appId: '1:401266204478:web:de911a2c2b9a0fd7f2d66f',
 }
+
+// ID de cliente web de Google (Firebase → Authentication → Google → Configuración del SDK web).
+// Lo usa el ingreso con Google nativo de la app Android.
+export const googleWebClientId = ''

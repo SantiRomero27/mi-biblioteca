@@ -1,0 +1,71 @@
+name: App Android
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npx cap sync android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Clave de firma: siempre la misma, así cada versión se instala encima de la anterior
+      - name: Preparar clave de firma
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/mibiblioteca.jks"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/mibiblioteca.jks" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Falta el secreto ANDROID_KEYSTORE_BASE64: se firma con una clave de prueba"
+          fi
+
+      - name: Compilar APK
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/mi-biblioteca.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mi-biblioteca-apk
+          path: mi-biblioteca.apk
+
+      # Publica siempre en la misma dirección:
+      # https://github.com/<usuario>/mi-biblioteca/releases/download/app/mi-biblioteca.apk
+      - name: Publicar en Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete app -y --cleanup-tag || true
+          gh release create app mi-biblioteca.apk \
+            --title "Mi biblioteca para Android · 1.0.${{ github.run_number }}" \
+            --notes "Versión 1.0.${{ github.run_number }} — $(git log -1 --pretty=%s)" \
+            --target "$GITHUB_SHA" --latest

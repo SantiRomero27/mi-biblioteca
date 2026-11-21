@@ -88,7 +88,8 @@ export async function importFile(file) {
   const format = formatOf(file)
   if (!format) throw new Error(`Formato no soportado: ${file.name}`)
   const id = await fingerprint(file)
-  const existing = await db.get('books', id)
+  let existing = await db.get('books', id)
+  if (existing?.deleted) existing = null // se había eliminado: vuelve como libro nuevo
   const hasFile = await db.get('files', id)
 
   if (existing && hasFile) return { book: existing, status: 'existente' }
@@ -125,12 +126,58 @@ export async function importFile(file) {
   return { book, status: 'nuevo' }
 }
 
+// Android: libro que vive en una carpeta del dispositivo (no se copia; se guarda la referencia)
+export async function importFromFolder({ uri, name, size, fingerprint: id }) {
+  const book = await db.get('books', id)
+  const row = await db.get('files', id)
+  if (book?.deleted) return 'eliminado' // lo eliminaste de la biblioteca: no se vuelve a agregar solo
+  if (book && row?.uri === uri) return 'existente'
+  if (book && row?.blob) return 'existente' // ya tiene una copia propia
+  await db.put('files', { id, uri, name, size })
+  if (book) {
+    if (!book.cover) {
+      const file = await loadFileBlob({ uri, name })
+      const meta = formatOf(file) === 'epub' ? await readEpubMeta(file) : await readPdfMeta(file)
+      await db.put('books', { ...book, cover: meta.cover ?? null }, 'remote')
+    }
+    return row ? 'existente' : 'vinculado'
+  }
+  const file = await loadFileBlob({ uri, name })
+  const format = formatOf(file)
+  const meta = format === 'epub' ? await readEpubMeta(file) : await readPdfMeta(file)
+  await db.put('books', {
+    id, format,
+    title: meta.title || cleanName(name),
+    author: meta.author || '',
+    fileName: name, size, pages: meta.pages ?? null, cover: meta.cover ?? null,
+    favorite: false, finished: false,
+    progress: { fraction: 0, locator: null, label: '' },
+    addedAt: now(), lastOpenedAt: null, updatedAt: now(), deleted: false, _dirty: true,
+  })
+  return 'nuevo'
+}
+
+// Devuelve el archivo listo para abrir: la copia guardada (web) o el original de la carpeta (Android)
+export async function loadFileBlob(row) {
+  if (row.blob) return row.blob
+  if (row.uri) {
+    const { bookUrl } = await import('./native.js')
+    const res = await fetch(bookUrl(row.uri))
+    if (!res.ok) throw new Error('El archivo ya no está en la carpeta')
+    const blob = await res.blob()
+    const type = /\.epub$/i.test(row.name) ? 'application/epub+zip' : 'application/pdf'
+    return new File([blob], row.name, { type })
+  }
+  throw new Error('Sin archivo')
+}
+
 export async function listBooks() {
   const [books, files] = await Promise.all([db.all('books'), db.all('files')])
   const local = new Set(files.map(f => f.id))
+  const kind = new Map(files.map(f => [f.id, f.uri ? 'carpeta' : 'copia']))
   return books
     .filter(b => !b.deleted)
-    .map(b => ({ ...b, hasFile: local.has(b.id) }))
+    .map(b => ({ ...b, hasFile: local.has(b.id), fileKind: kind.get(b.id) ?? null }))
 }
 
 export const getBook = id => db.get('books', id)

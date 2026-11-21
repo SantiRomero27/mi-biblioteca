@@ -6,6 +6,7 @@ import {
   listBooks, importFile, updateBook, deleteBook, removeLocalFile, listAnnotations, formatSize, COLORS,
 } from './books.js'
 import { platform } from './platform.js'
+import { isNative, scanFolders, listFolders, pickFolder, removeFolder } from './native.js'
 import { sync, signIn, signUp, signOut, resetPassword, syncNow, signInWithGoogle } from './sync.js'
 
 let filter = 'todos'
@@ -45,7 +46,10 @@ export async function renderLibrary(root, { openBook }) {
         <div class="lib-bar">
           <h1 class="lib-title">Mi biblioteca</h1>
           <button class="icon-btn" data-act="search" title="Buscar">${icon('search')}</button>
-          <label class="icon-btn" title="Agregar libros">${icon('add')}
+          ${isNative
+            ? `<button class="icon-btn" data-act="folders" title="Carpetas de libros">${icon('folder')}</button>`
+            : ''}
+          <label class="icon-btn" title="Agregar libros" ${isNative ? 'hidden' : ''}>${icon('add')}
             <input type="file" accept=".pdf,.epub,application/pdf,application/epub+zip" multiple hidden data-add />
           </label>
           <button class="icon-btn account-btn" data-act="account" title="Cuenta y sincronización"></button>
@@ -54,6 +58,7 @@ export async function renderLibrary(root, { openBook }) {
           <input type="search" placeholder="Buscar por título o autor" />
         </div>
         <nav class="chips"></nav>
+        <div class="scan-status" hidden></div>
       </header>
       <main class="lib-main"></main>
       <div class="drop-hint">${icon('upload')}<span>Soltá los PDF o EPUB para agregarlos</span></div>
@@ -84,6 +89,86 @@ export async function renderLibrary(root, { openBook }) {
   el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('dragging') })
   el.addEventListener('dragleave', e => { if (e.target === el || !el.contains(e.relatedTarget)) el.classList.remove('dragging') })
   el.addEventListener('drop', e => { e.preventDefault(); el.classList.remove('dragging'); addFiles(e.dataTransfer.files) })
+
+  // ---------- Carpetas (Android) ----------
+  const scanEl = $('.scan-status', el)
+  let lastScan = 0
+  async function runScan({ quiet = false } = {}) {
+    if (!isNative) return
+    lastScan = Date.now()
+    const folders = await listFolders()
+    if (!folders.length) return
+    scanEl.hidden = false
+    scanEl.textContent = 'Buscando libros…'
+    try {
+      const r = await scanFolders((i, n, name) => { scanEl.textContent = `Leyendo ${i} de ${n} · ${name}` })
+      if (!quiet || r.added || r.linked) {
+        const parts = []
+        if (r.added) parts.push(`${r.added} ${r.added === 1 ? 'libro nuevo' : 'libros nuevos'}`)
+        if (r.linked) parts.push(`${r.linked} vinculados con tu cuenta`)
+        toast(parts.length ? parts.join(' · ') : `${r.total} libros en tus carpetas`)
+      }
+    } catch (e) {
+      console.error(e)
+      toast('No se pudieron leer las carpetas')
+    } finally {
+      scanEl.hidden = true
+      render()
+    }
+  }
+
+  async function addFolder() {
+    try {
+      const f = await pickFolder()
+      toast(`Carpeta agregada: ${f.name}`)
+      await runScan()
+    } catch (e) {
+      if (e?.message !== 'cancelled') toast('No se pudo agregar la carpeta')
+    }
+  }
+
+  async function openFolders() {
+    const folders = await listFolders()
+    const sheet = h(`
+      <div class="modal-backdrop">
+        <div class="modal">
+          <h2 class="modal-title">Carpetas de libros</h2>
+          <p class="modal-hint">La app lee los PDF y EPUB de estas carpetas (y sus subcarpetas) sin copiarlos.</p>
+          <ul class="folder-list">${folders.length ? folders.map(f => `
+            <li><span class="folder-ic">${icon('folder')}</span><span class="folder-name">${esc(f.name)}</span>
+              <button class="icon-btn sm" data-remove="${esc(f.uri)}" title="Quitar carpeta">${icon('close')}</button></li>`).join('')
+            : '<li class="empty-note">Todavía no elegiste ninguna carpeta.</li>'}
+          </ul>
+          <div class="modal-actions">
+            <label class="btn-text">Agregar archivo suelto
+              <input type="file" accept=".pdf,.epub,application/pdf,application/epub+zip" multiple hidden data-loose />
+            </label>
+            ${folders.length ? `<button class="btn-text" data-act="rescan">Buscar de nuevo</button>` : ''}
+            <button class="btn-filled" data-act="add-folder">${icon('add')} Carpeta</button>
+          </div>
+        </div>
+      </div>`)
+    const close = () => sheet.remove()
+    sheet.addEventListener('click', e => { if (e.target === sheet) close() })
+    document.body.append(sheet)
+    $('[data-act=add-folder]', sheet).onclick = () => { close(); addFolder() }
+    $('[data-act=rescan]', sheet)?.addEventListener('click', () => { close(); runScan() })
+    $('[data-loose]', sheet).onchange = e => { close(); addFiles(e.target.files) }
+    $$('[data-remove]', sheet).forEach(b => b.onclick = async () => {
+      const ok = await confirmDialog({ title: 'Quitar carpeta', body: 'La app deja de leer esta carpeta. No se borra ningún archivo, y tus notas y progreso quedan en la cuenta.', ok: 'Quitar' })
+      if (!ok) return
+      await removeFolder(b.dataset.remove)
+      close()
+      await runScan({ quiet: true })
+      render()
+    })
+  }
+  $('[data-act=folders]', el)?.addEventListener('click', openFolders)
+
+  const onVisible = () => {
+    if (document.visibilityState === 'visible' && Date.now() - lastScan > 20000) runScan({ quiet: true })
+  }
+  if (isNative) document.addEventListener('visibilitychange', onVisible)
 
   // ---------- Buscar ----------
   $('[data-act=search]', el).onclick = () => {
@@ -135,6 +220,18 @@ export async function renderLibrary(root, { openBook }) {
     if (query) list = list.filter(b => `${b.title} ${b.author}`.toLowerCase().includes(query))
     list.sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0) || b.addedAt - a.addedAt)
 
+    if (!books.length && isNative) {
+      main.innerHTML = `
+        <div class="empty">
+          ${icon('folder', 'empty-ic')}
+          <h2>Elegí dónde están tus libros</h2>
+          <p>Indicá la carpeta del celu o de la tarjeta SD donde guardás tus PDF y EPUB.
+          La app los lee ahí mismo, sin copiarlos, y detecta los nuevos cada vez que la abrís.</p>
+          <button class="btn-filled" data-act="first-folder">${icon('folder')} Elegir carpeta</button>
+        </div>`
+      $('[data-act=first-folder]', main).onclick = addFolder
+      return
+    }
     if (!books.length) {
       main.innerHTML = `
         <div class="empty">
@@ -228,7 +325,7 @@ export async function renderLibrary(root, { openBook }) {
     const r = anchor.getBoundingClientRect()
     const menu = h(`
       <div class="menu-pop" role="menu">
-        ${b.hasFile ? `<button data-m="local">Quitar de este dispositivo</button>` : ''}
+        ${b.fileKind === 'copia' ? `<button data-m="local">Quitar de este dispositivo</button>` : ''}
         <button data-m="delete" class="danger">Eliminar de la biblioteca</button>
       </div>`)
     document.body.append(menu)
@@ -244,7 +341,7 @@ export async function renderLibrary(root, { openBook }) {
     })
     $('[data-m=delete]', menu).onclick = async () => {
       close()
-      const native = platform.isNative && platform.deleteOriginal && b.hasFile
+      const native = platform.isNative && platform.deleteOriginal && b.fileKind === 'carpeta'
       const res = await confirmDialog({
         title: 'Eliminar libro',
         body: `Se elimina "${b.title}" de la biblioteca, con todas sus notas y subrayados, en todos tus dispositivos.`,
@@ -340,7 +437,9 @@ export async function renderLibrary(root, { openBook }) {
   changes.addEventListener('change', onChange)
 
   await render()
+  if (isNative && Date.now() - lastScan > 20000) runScan({ quiet: true })
   return () => {
+    document.removeEventListener('visibilitychange', onVisible)
     changes.removeEventListener('change', onChange)
     sync.removeEventListener('state', paintAccount)
     sync.removeEventListener('auth-error', onAuthError)
