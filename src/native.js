@@ -42,20 +42,24 @@ export function scanFolders(onProgress) {
         for (const file of files) if (!found.has(file.fingerprint)) found.set(file.fingerprint, file)
       } catch (e) { console.error(e) }
     }
-    let added = 0, linked = 0, missing = 0, i = 0
+    let added = 0, linked = 0, missing = 0, failed = 0, i = 0, firstError = ''
     for (const file of found.values()) {
       onProgress?.(++i, found.size, file.name)
       try {
         const status = await importFromFolder(file)
         if (status === 'nuevo') added++
         else if (status === 'vinculado') linked++
-      } catch (e) { console.error('No se pudo leer', file.name, e) }
+      } catch (e) {
+        failed++
+        firstError ||= `${file.name}: ${e?.message ?? e}`
+        console.error('No se pudo leer', file.name, e)
+      }
     }
     // archivos de carpetas que ya no aparecen
     for (const row of await db.all('files')) {
       if (row.uri && !found.has(row.id)) { await db.del('files', row.id); missing++ }
     }
-    return { added, linked, missing, total: found.size }
+    return { added, linked, missing, failed, firstError, total: found.size, folders: folders.length }
   })().finally(() => { scanning = null })
   return scanning
 }

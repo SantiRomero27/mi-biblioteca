@@ -120,7 +120,15 @@ export async function renderLibrary(root, { openBook }) {
     scanEl.textContent = 'Buscando libros…'
     try {
       const r = await scanFolders((i, n, name) => { scanEl.textContent = `Leyendo ${i} de ${n} · ${name}` })
-      if (!quiet || r.added || r.linked) {
+      if (r.failed) {
+        await confirmDialog({
+          title: 'Algunos libros no se pudieron abrir',
+          body: `${r.failed} de ${r.total} archivos no se pudieron leer.\n\nPrimer error: ${r.firstError}`,
+          ok: 'Entendido', cancel: false,
+        })
+      } else if (!r.total) {
+        toast('No encontré PDF ni EPUB en esa carpeta (ni en sus subcarpetas)')
+      } else if (!quiet || r.added || r.linked) {
         const parts = []
         if (r.added) parts.push(`${r.added} ${r.added === 1 ? 'libro nuevo' : 'libros nuevos'}`)
         if (r.linked) parts.push(`${r.linked} vinculados con tu cuenta`)
@@ -307,6 +315,23 @@ export async function renderLibrary(root, { openBook }) {
     if (query) list = list.filter(b => `${b.title} ${b.author} ${b.description ?? ''}`.toLowerCase().includes(query))
     list.sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0) || b.addedAt - a.addedAt)
 
+    const folders = isNative && !books.length ? await listFolders() : []
+    if (!books.length && isNative && folders.length) {
+      main.innerHTML = `
+        <div class="empty">
+          ${icon('folder', 'empty-ic')}
+          <h2>Todavía no hay libros</h2>
+          <p>Estoy leyendo ${folders.map(f => `<strong>${esc(f.name)}</strong>`).join(', ')}.
+          Si ahí no hay PDF ni EPUB, elegí otra carpeta.</p>
+          <div class="empty-actions">
+            <button class="btn-filled" data-act="rescan">Buscar de nuevo</button>
+            <button class="btn-text" data-act="other-folder">Elegir otra carpeta</button>
+          </div>
+        </div>`
+      $('[data-act=rescan]', main).onclick = () => runScan()
+      $('[data-act=other-folder]', main).onclick = addFolder
+      return
+    }
     if (!books.length && isNative) {
       main.innerHTML = `
         <div class="empty">

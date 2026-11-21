@@ -32,7 +32,9 @@ public class BookWebViewClient extends BridgeWebViewClient {
     @Override
     public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
         Uri url = request.getUrl();
-        String path = url.getPath();
+        // Ruta SIN decodificar: la URI del documento viaja codificada y se decodifica una sola vez.
+        // (getPath() ya decodifica, y decodificar dos veces rompe los %3A / %2F de las URIs de Android)
+        String path = url.getEncodedPath();
         if (path != null && path.startsWith(PREFIX) && "localhost".equals(url.getHost())) {
             return serveBook(path.substring(PREFIX.length()));
         }
