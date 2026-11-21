@@ -36,15 +36,24 @@ const textOf = x => {
   return k ? textOf(x[k]) : ''
 }
 
+// Las descripciones de los EPUB suelen venir en HTML: se dejan como texto plano
+const plainText = (html, max = 800) => {
+  if (!html) return ''
+  const doc = new DOMParser().parseFromString(String(html), 'text/html')
+  const t = (doc.body.textContent || '').replace(/\s+/g, ' ').trim()
+  return t.length > max ? t.slice(0, max - 1) + '…' : t
+}
+
 async function readEpubMeta(file) {
   const { makeBook } = await import('./vendor/foliate/view.js')
   const book = await makeBook(file)
   const title = textOf(book.metadata?.title)
   const author = textOf(book.metadata?.author)
+  const description = plainText(textOf(book.metadata?.description))
   let cover = null
   try { cover = await book.getCover?.() } catch { /* sin portada */ }
   book.destroy?.()
-  return { title, author, cover: cover ? await shrinkCover(cover) : null }
+  return { title, author, description, cover: cover ? await shrinkCover(cover) : null }
 }
 
 async function readPdfMeta(file) {
@@ -62,7 +71,7 @@ async function readPdfMeta(file) {
   const cover = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.82))
   const pages = pdf.numPages
   await closePdf(pdf)
-  return { title: info?.Title?.trim() || '', author: info?.Author?.trim() || '', cover, pages }
+  return { title: info?.Title?.trim() || '', author: info?.Author?.trim() || '', description: plainText(info?.Subject), cover, pages }
 }
 
 // Reduce portadas grandes para no llenar el almacenamiento
@@ -109,6 +118,7 @@ export async function importFile(file) {
     format,
     title: meta.title || cleanName(file.name),
     author: meta.author || '',
+    description: meta.description || '',
     fileName: file.name,
     size: file.size,
     pages: meta.pages ?? null,
@@ -149,6 +159,7 @@ export async function importFromFolder({ uri, name, size, fingerprint: id }) {
     id, format,
     title: meta.title || cleanName(name),
     author: meta.author || '',
+    description: meta.description || '',
     fileName: name, size, pages: meta.pages ?? null, cover: meta.cover ?? null,
     favorite: false, finished: false,
     progress: { fraction: 0, locator: null, label: '' },

@@ -55,7 +55,7 @@ export async function renderLibrary(root, { openBook }) {
           <button class="icon-btn account-btn" data-act="account" title="Cuenta y sincronización"></button>
         </div>
         <div class="lib-search" hidden>
-          <input type="search" placeholder="Buscar por título o autor" />
+          <input type="search" placeholder="Buscar por título, autor o descripción" />
         </div>
         <nav class="chips"></nav>
         <div class="scan-status" hidden></div>
@@ -217,7 +217,7 @@ export async function renderLibrary(root, { openBook }) {
     if (filter === 'leyendo') list = list.filter(b => !b.finished && (b.progress?.fraction ?? 0) > 0)
     if (filter === 'favoritos') list = list.filter(b => b.favorite)
     if (filter === 'terminados') list = list.filter(b => b.finished)
-    if (query) list = list.filter(b => `${b.title} ${b.author}`.toLowerCase().includes(query))
+    if (query) list = list.filter(b => `${b.title} ${b.author} ${b.description ?? ''}`.toLowerCase().includes(query))
     list.sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0) || b.addedAt - a.addedAt)
 
     if (!books.length && isNative) {
@@ -261,6 +261,7 @@ export async function renderLibrary(root, { openBook }) {
           <div class="book-info">
             <h3 class="book-title">${esc(b.title)}</h3>
             ${b.author ? `<p class="book-author">${esc(b.author)}</p>` : ''}
+            ${b.description ? `<p class="book-desc">${esc(b.description)}</p>` : ''}
             <p class="book-meta">${b.format.toUpperCase()}${b.size ? ' · ' + formatSize(b.size) : ''}${b.hasFile ? '' : ' · <span class="not-here">no está en este dispositivo</span>'}</p>
             <div class="book-progress">
               <div class="bar"><span style="width:${b.finished ? 100 : pct}%"></span></div>
@@ -325,6 +326,7 @@ export async function renderLibrary(root, { openBook }) {
     const r = anchor.getBoundingClientRect()
     const menu = h(`
       <div class="menu-pop" role="menu">
+        <button data-m="edit">Editar nombre y descripción</button>
         ${b.fileKind === 'copia' ? `<button data-m="local">Quitar de este dispositivo</button>` : ''}
         <button data-m="delete" class="danger">Eliminar de la biblioteca</button>
       </div>`)
@@ -334,6 +336,7 @@ export async function renderLibrary(root, { openBook }) {
     const close = () => { menu.remove(); document.removeEventListener('pointerdown', outside, true) }
     const outside = e => { if (!menu.contains(e.target)) close() }
     setTimeout(() => document.addEventListener('pointerdown', outside, true))
+    $('[data-m=edit]', menu).onclick = () => { close(); editBook(b) }
     $('[data-m=local]', menu)?.addEventListener('click', async () => {
       close()
       const ok = await confirmDialog({ title: 'Quitar de este dispositivo', body: 'Se borra el archivo de acá. El progreso, las notas y los subrayados quedan en tu cuenta.', ok: 'Quitar' })
@@ -359,6 +362,39 @@ export async function renderLibrary(root, { openBook }) {
       toast('Libro eliminado')
       render()
     }
+  }
+
+  // ---------- Editar nombre y descripción ----------
+  function editBook(b) {
+    const sheet = h(`
+      <div class="modal-backdrop">
+        <form class="modal edit-book">
+          <h2 class="modal-title">Editar libro</h2>
+          <label>Nombre<input name="title" required maxlength="200" value="${esc(b.title)}" /></label>
+          <label>Autor<input name="author" maxlength="200" value="${esc(b.author)}" /></label>
+          <label>Descripción<textarea name="description" rows="5" maxlength="2000" placeholder="De qué trata, por qué lo leés, quién te lo recomendó…">${esc(b.description ?? '')}</textarea></label>
+          <p class="modal-hint">Archivo: ${esc(b.fileName || '')}. Los cambios se sincronizan con tus otros dispositivos; el archivo no se modifica.</p>
+          <div class="modal-actions">
+            <button type="button" class="btn-text" data-act="cancel">Cancelar</button>
+            <button type="submit" class="btn-filled">Guardar</button>
+          </div>
+        </form>
+      </div>`)
+    const close = () => sheet.remove()
+    sheet.addEventListener('click', e => { if (e.target === sheet) close() })
+    $('[data-act=cancel]', sheet).onclick = close
+    $('form', sheet).onsubmit = async e => {
+      e.preventDefault()
+      const data = Object.fromEntries(new FormData(e.target))
+      const title = data.title.trim()
+      if (!title) return
+      await updateBook(b.id, { title, author: data.author.trim(), description: data.description.trim() })
+      close()
+      toast('Libro actualizado')
+      render()
+    }
+    document.body.append(sheet)
+    $('input[name=title]', sheet).focus()
   }
 
   // ---------- Panel de cuenta ----------
