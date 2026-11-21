@@ -11,4 +11,4 @@ export const firebaseConfig = {
 
 // ID de cliente web de Google (Firebase → Authentication → Google → Configuración del SDK web).
 // Lo usa el ingreso con Google nativo de la app Android.
-export const googleWebClientId = ''
+export const googleWebClientId = '401266204478-4f10ap7i869p0la890qi3t5lol0qskce.apps.googleusercontent.com'
