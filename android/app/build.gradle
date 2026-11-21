@@ -20,9 +20,10 @@ android {
     }
     // Firma: la clave llega desde los secretos de GitHub (ver .github/workflows/android.yml)
     def ksFile = System.getenv("ANDROID_KEYSTORE_FILE")
+    def hasKeystore = ksFile != null && file(ksFile).exists()
     signingConfigs {
         release {
-            if (ksFile && file(ksFile).exists()) {
+            if (hasKeystore) {
                 storeFile file(ksFile)
                 storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
                 keyAlias "mibiblioteca"
@@ -33,7 +34,7 @@ android {
     buildTypes {
         release {
             // Sin clave (por ejemplo en una prueba local) se firma con la clave de depuración
-            signingConfig (ksFile && file(ksFile).exists()) ? signingConfigs.release : signingConfigs.debug
+            signingConfig = hasKeystore ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
