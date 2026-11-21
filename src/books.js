@@ -126,6 +126,7 @@ export async function importFile(file) {
     cover: meta.cover ?? null,
     favorite: false,
     finished: false,
+    toRead: false,
     progress: { fraction: 0, locator: null, label: '' },
     addedAt: now(),
     lastOpenedAt: null,
@@ -164,7 +165,7 @@ export async function importFromFolder({ uri, name, size, fingerprint: id }) {
     author: meta.author || '',
     description: meta.description || '',
     fileName: name, size, pages: meta.pages ?? null, cover: meta.cover ?? null,
-    favorite: false, finished: false,
+    favorite: false, finished: false, toRead: false,
     progress: { fraction: 0, locator: null, label: '' },
     addedAt: now(), lastOpenedAt: null, updatedAt: now(), deleted: false, _dirty: true,
   })

@@ -1,6 +1,7 @@
 // Migración desde ReadEra: lee su copia de seguridad (.bak) y pasa progreso, citas, marcadores,
 // favoritos y "leídos" a Mi biblioteca.
 //
+// (doc_to_read_time > 0 → "Por leer")
 // Formato de ReadEra (.bak = ZIP): docs_N.json → [{ uri: "sha-1:<sha1 del archivo>", data: {...}, citations, bookmarks }]
 //   data.doc_sha1 / doc_file_size       → identifican el archivo (SHA-1 del archivo completo)
 //   data.doc_position (JSON)            → { ratio, page (desde 0), pagesCount, offsetY }
@@ -52,6 +53,7 @@ export async function readBackup(file) {
       lastRead: data.doc_last_read_time || 0,
       finished: data.doc_have_read_time > 0,
       favorite: data.doc_favorites_time > 0,
+      toRead: data.doc_to_read_time > 0,
       citations: (d.citations ?? []).map(c => ({
         id: c.note_uri,
         text: c.note_body || '',
@@ -146,6 +148,7 @@ async function applyEntry(book, file, entry) {
   if (entry.userTitle && entry.userTitle !== book.title) patch.title = entry.userTitle // nombre que le pusiste en ReadEra
   if (entry.finished && !book.finished) patch.finished = true
   if (entry.favorite && !book.favorite) patch.favorite = true
+  if (entry.toRead && !entry.finished && !book.toRead && !book.finished) patch.toRead = true
   if (entry.position && (!(book.progress?.fraction > 0) || entry.lastRead > (book.lastOpenedAt ?? 0))) {
     if (book.format === 'pdf') {
       const page = Math.min(pageCount, (entry.position.page ?? 0) + 1)

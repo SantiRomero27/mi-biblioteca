@@ -206,7 +206,7 @@ export async function renderLibrary(root, { openBook }) {
       await render()
       const lines = [
         `Encontré ${st.books} libros en la copia de ReadEra.`,
-        st.applied ? `Ya pasé los datos de ${st.applied} ${st.applied === 1 ? 'libro' : 'libros'} que están en tu biblioteca: progreso, leídos y favoritos, ${st.placed + st.unplaced ? `${st.placed} citas marcadas en su lugar${st.unplaced ? ` y ${st.unplaced} guardadas como nota sin marcar (no encontré el texto exacto en la página)` : ''}` : 'sin citas nuevas'}${st.bookmarks ? `, ${st.bookmarks} marcadores` : ''}.` : 'Todavía no hay en tu biblioteca ningún libro de esa copia.',
+        st.applied ? `Ya pasé los datos de ${st.applied} ${st.applied === 1 ? 'libro' : 'libros'} que están en tu biblioteca: progreso, leídos, por leer y favoritos, ${st.placed + st.unplaced ? `${st.placed} citas marcadas en su lugar${st.unplaced ? ` y ${st.unplaced} guardadas como nota sin marcar (no encontré el texto exacto en la página)` : ''}` : 'sin citas nuevas'}${st.bookmarks ? `, ${st.bookmarks} marcadores` : ''}.` : 'Todavía no hay en tu biblioteca ningún libro de esa copia.',
         st.pending ? `${st.pending === 1 ? 'Queda 1 libro pendiente: se completa solo' : `Quedan ${st.pending} libros pendientes: se completan solos`} cuando agregues ${st.pending === 1 ? 'ese archivo' : 'esos archivos'}${isNative ? ' a tus carpetas' : ''}.` : '',
       ].filter(Boolean)
       await confirmDialog({ title: 'Importación de ReadEra', body: lines.join('\n\n'), ok: 'Listo', cancel: false })
@@ -224,7 +224,7 @@ export async function renderLibrary(root, { openBook }) {
           <h2 class="modal-title">Pendientes de ReadEra</h2>
           <p class="modal-hint">Estos libros tienen datos de ReadEra esperando. Cuando agregues el mismo archivo, se pasan solos el progreso y las citas.</p>
           <ul class="pending-list">${pending.map(p => `
-            <li><strong>${esc(p.title)}</strong><span>${p.format.toUpperCase()}${p.citations.length ? ` · ${p.citations.length} citas` : ''}${p.position ? ` · ${Math.round(p.position.ratio * 100)} %` : ''}${p.finished ? ' · leído' : ''}</span></li>`).join('')}
+            <li><strong>${esc(p.title)}</strong><span>${p.format.toUpperCase()}${p.citations.length ? ` · ${p.citations.length} citas` : ''}${p.position ? ` · ${Math.round(p.position.ratio * 100)} %` : ''}${p.finished ? ' · leído' : p.toRead ? ' · por leer' : ''}</span></li>`).join('')}
           </ul>
           <div class="modal-actions"><button class="btn-filled" data-act="ok">Cerrar</button></div>
         </div>
@@ -271,11 +271,12 @@ export async function renderLibrary(root, { openBook }) {
     const counts = {
       todos: books.length,
       leyendo: books.filter(b => !b.finished && (b.progress?.fraction ?? 0) > 0).length,
+      porleer: books.filter(b => b.toRead && !b.finished).length,
       favoritos: books.filter(b => b.favorite).length,
       terminados: books.filter(b => b.finished).length,
       citas: anns.filter(a => a.kind === 'highlight' && books.some(b => b.id === a.bookId)).length,
     }
-    const chips = [['todos', 'Todos'], ['leyendo', 'Leyendo'], ['favoritos', 'Favoritos'], ['terminados', 'Terminados'], ['citas', 'Citas']]
+    const chips = [['todos', 'Todos'], ['leyendo', 'Leyendo'], ['porleer', 'Por leer'], ['favoritos', 'Favoritos'], ['terminados', 'Terminados'], ['citas', 'Citas']]
     $('.chips', el).innerHTML = chips.map(([k, l]) =>
       `<button class="chip ${filter === k ? 'is-active' : ''}" data-f="${k}">${l}<span>${counts[k]}</span></button>`).join('')
     $$('.chip', el).forEach(c => c.onclick = () => { filter = c.dataset.f; render() })
@@ -284,6 +285,7 @@ export async function renderLibrary(root, { openBook }) {
 
     let list = books
     if (filter === 'leyendo') list = list.filter(b => !b.finished && (b.progress?.fraction ?? 0) > 0)
+    if (filter === 'porleer') list = list.filter(b => b.toRead && !b.finished)
     if (filter === 'favoritos') list = list.filter(b => b.favorite)
     if (filter === 'terminados') list = list.filter(b => b.finished)
     if (query) list = list.filter(b => `${b.title} ${b.author} ${b.description ?? ''}`.toLowerCase().includes(query))
@@ -334,12 +336,13 @@ export async function renderLibrary(root, { openBook }) {
             <p class="book-meta">${b.format.toUpperCase()}${b.size ? ' · ' + formatSize(b.size) : ''}${b.hasFile ? '' : ' · <span class="not-here">no está en este dispositivo</span>'}</p>
             <div class="book-progress">
               <div class="bar"><span style="width:${b.finished ? 100 : pct}%"></span></div>
-              <span class="pct">${b.finished ? 'Terminado' : pct ? pct + ' %' : 'Sin empezar'}</span>
+              <span class="pct">${b.finished ? 'Terminado' : pct ? pct + ' %' : b.toRead ? 'Por leer' : 'Sin empezar'}</span>
             </div>
           </div>
         </button>
         <div class="book-actions">
           <button class="icon-btn sm ${b.favorite ? 'is-on' : ''}" data-act="fav" title="Favorito">${icon(b.favorite ? 'star' : 'starOutline')}</button>
+          <button class="icon-btn sm ${b.toRead && !b.finished ? 'is-on' : ''}" data-act="toread" title="Por leer">${icon('schedule')}</button>
           <button class="icon-btn sm ${b.finished ? 'is-on' : ''}" data-act="done" title="Marcar como terminado">${icon('doneAll')}</button>
           <button class="icon-btn sm notes-count" data-act="notes" title="Notas y subrayados">${icon('notes')}${notes ? `<span>${notes}</span>` : ''}</button>
           <button class="icon-btn sm" data-act="more" title="Más opciones">${icon('more')}</button>
@@ -352,7 +355,16 @@ export async function renderLibrary(root, { openBook }) {
       const b = list.find(x => x.id === id)
       $('.book-open', li).onclick = () => openBook(id)
       $('[data-act=fav]', li).onclick = async () => { await updateBook(id, { favorite: !b.favorite }); render() }
-      $('[data-act=done]', li).onclick = async () => { await updateBook(id, { finished: !b.finished }); render() }
+      $('[data-act=done]', li).onclick = async () => {
+        // terminar un libro lo saca de "Por leer"
+        await updateBook(id, b.finished ? { finished: false } : { finished: true, toRead: false }); render()
+      }
+      $('[data-act=toread]', li).onclick = async () => {
+        const on = !(b.toRead && !b.finished)
+        await updateBook(id, on ? { toRead: true, finished: false } : { toRead: false })
+        toast(on ? 'Agregado a Por leer' : 'Quitado de Por leer')
+        render()
+      }
       $('[data-act=notes]', li).onclick = () => { filter = 'citas'; query = b.title.toLowerCase(); render() }
       $('[data-act=more]', li).onclick = e => bookMenu(e.currentTarget, b)
     })

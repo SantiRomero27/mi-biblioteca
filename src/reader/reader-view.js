@@ -245,10 +245,14 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     const key = JSON.stringify(position.locator)
     if (key === lastSaved) return
     lastSaved = key
+    const fraction = Number((position.fraction ?? 0).toFixed(5))
     await updateBook(bookId, {
-      progress: { fraction: Number((position.fraction ?? 0).toFixed(5)), locator: position.locator, label: position.label ?? '' },
+      progress: { fraction, locator: position.locator, label: position.label ?? '' },
       lastOpenedAt: Date.now(),
+      // al empezar a leerlo de verdad, sale de "Por leer"
+      ...(book.toRead && fraction > 0.02 ? { toRead: false } : {}),
     })
+    if (book.toRead && fraction > 0.02) book.toRead = false
   }
 
   // ---------- Barras ----------
