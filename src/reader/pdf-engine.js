@@ -316,6 +316,17 @@ export async function createPdfEngine(opts) {
     const u = rx + w / 2 + (vp.half === 1 ? w : 0), v = ry + h / 2
     return { x: u / (vp.fw * vp.scale), y: v / (vp.fh * vp.scale) }
   }
+  // Coordenadas de la hoja (0–1) → punto de pantalla (inverso de toSheet)
+  function sheetToClient(vp, x, y) {
+    const b = vp.el.getBoundingClientRect()
+    const cx = b.left + b.width / 2, cy = b.top + b.height / 2
+    const w = vp.w * vp.scale, h = vp.h * vp.scale
+    const u = x * vp.fw * vp.scale - (vp.half === 1 ? w : 0) - w / 2, v = y * vp.fh * vp.scale - h / 2
+    const a = rotation * Math.PI / 180
+    return { x: cx + u * Math.cos(a) - v * Math.sin(a), y: cy + u * Math.sin(a) + v * Math.cos(a) }
+  }
+  const vpForRect = r => vpFor(r.p, vps.some(v => v.real === r.p && v.half !== null) ? (r.x + r.w / 2 >= 0.5 ? 1 : 0) : 0)
+
   // Coordenadas de la hoja → fracción dentro del recuadro visible de la página (para desplazarse hasta ahí)
   function sheetToBox(vp, x, y) {
     let u = (x * vp.fw - (vp.half === 1 ? vp.w : 0)) / vp.w, v = y
@@ -428,7 +439,7 @@ export async function createPdfEngine(opts) {
   }
 
   let selTimer
-  const checkSelection = () => { clearTimeout(selTimer); selTimer = setTimeout(() => onSelection?.(selectionInfo()), 220) }
+  const checkSelection = () => { if (editing) return; clearTimeout(selTimer); selTimer = setTimeout(() => onSelection?.(selectionInfo()), 220) }
   document.addEventListener('selectionchange', checkSelection)
 
   // ---------- Toques, doble toque y pellizco ----------
@@ -471,7 +482,7 @@ export async function createPdfEngine(opts) {
   scroller.addEventListener('mousedown', e => {
     if (e.button !== 0) return
     const layer = e.target.closest?.('.textLayer')
-    if (!layer || e.target.tagName === 'SPAN') return
+    if (editing || !layer || e.target.tagName === 'SPAN') return
     const start = nearestText(layer, e.clientX, e.clientY)
     if (!start) return
     e.preventDefault()
@@ -495,6 +506,7 @@ export async function createPdfEngine(opts) {
     const long = Date.now() - down.t > 450
     down = null
     if (moved || long) return
+    if (editing) return onTap?.(e.clientX / window.innerWidth) // tocar afuera confirma el ajuste
     const sel = window.getSelection()
     if (sel && !sel.isCollapsed) return
     // ¿tocó un subrayado?
@@ -554,6 +566,78 @@ export async function createPdfEngine(opts) {
   }
   scroller.addEventListener('touchend', e => { if (e.touches.length < 2) endPinch() })
   scroller.addEventListener('touchcancel', endPinch)
+
+  // ---------- Ajustar un subrayado con dos manejadores ----------
+  // Se convierte el subrayado en una selección real del texto; los manejadores mueven sus extremos
+  // y al terminar se recalculan los rectángulos con la misma lógica que una selección nueva.
+  let editing = null
+  const layerAt = (x, y) => document.elementFromPoint(x, y)?.closest?.('.pdf-page')?.querySelector('.textLayer')
+  const before = (a, b) => {
+    const r = document.createRange()
+    r.setStart(a.node, a.offset)
+    r.setEnd(b.node, b.offset)
+    return !r.collapsed || (a.node === b.node && a.offset <= b.offset)
+  }
+  function applyEditSel() {
+    const { a, b } = editing
+    window.getSelection().setBaseAndExtent(a.node, a.offset, b.node, b.offset)
+  }
+  function beginEdit(ann) {
+    const rects = ann.locator?.rects ?? []
+    if (!rects.length) return null
+    const first = rects[0], last = rects[rects.length - 1]
+    const vpA = vpForRect(first), vpB = vpForRect(last)
+    if (!vpA || !vpB || vpA.state !== 'done' || vpB.state !== 'done') return null
+    const pA = sheetToClient(vpA, first.x + Math.min(0.004, first.w / 4), first.y + first.h / 2)
+    const pB = sheetToClient(vpB, last.x + last.w - Math.min(0.004, last.w / 4), last.y + last.h / 2)
+    const a = caretAt(pA.x, pA.y, vpA.text), b = caretAt(pB.x, pB.y, vpB.text)
+    if (!a || !b) return null
+    editing = { ann, a, b }
+    scroller.querySelectorAll(`.hl[data-id="${ann.id}"]`).forEach(d => d.classList.add('is-editing'))
+    scroller.classList.add('is-editing')
+    applyEditSel()
+    return {
+      ends() {
+        const sel = window.getSelection()
+        if (!sel.rangeCount) return null
+        const rs = Array.from(sel.getRangeAt(0).getClientRects()).filter(r => r.width > 1 && r.height > 1)
+        if (!rs.length) return null
+        const hs = rs.map(r => r.height).sort((x, y) => x - y), med = hs[hs.length >> 1]
+        const ok = rs.filter(r => r.height <= med * 3)
+        const s0 = ok[0], s1 = ok[ok.length - 1]
+        return { start: { x: s0.left, top: s0.top, bottom: s0.bottom }, end: { x: s1.right, top: s1.top, bottom: s1.bottom } }
+      },
+      move(which, x, y) {
+        const layer = layerAt(x, y)
+        if (!layer) return which
+        const pos = caretAt(x, y, layer)
+        if (!pos) return which
+        editing[which === 'start' ? 'a' : 'b'] = pos
+        // si los extremos se cruzan, se intercambian
+        if (!before(editing.a, editing.b)) {
+          [editing.a, editing.b] = [editing.b, editing.a]
+          which = which === 'start' ? 'end' : 'start'
+        }
+        applyEditSel()
+        return which
+      },
+      finish() {
+        const info = selectionInfo()
+        endEdit()
+        return info
+      },
+      cancel() { endEdit(); drawAllFor(ann) },
+    }
+  }
+  function endEdit() {
+    if (!editing) return
+    const { ann } = editing
+    editing = null
+    scroller.classList.remove('is-editing')
+    window.getSelection()?.removeAllRanges()
+    scroller.querySelectorAll(`.hl[data-id="${ann.id}"]`).forEach(d => d.classList.remove('is-editing'))
+  }
+  const drawAllFor = ann => redrawReal(pagesOf(ann))
 
   // ---------- Ajustes ----------
   function applySettings(s) {
@@ -623,6 +707,7 @@ export async function createPdfEngine(opts) {
     get hasSpreads() { return sizes.some(isSpread) },
     get fit() { return effectiveFit() },
     tocPages,
+    beginEdit,
     get rotation() { return rotation },
     setRotation,
     describe: f => `pág. ${Math.min(vps.length, Math.floor(f * vps.length) + 1)} de ${vps.length}`,

@@ -175,6 +175,7 @@ export async function createEpubEngine({ host, file, settings, initialLocator, o
     docs.set(index, doc)
     let selTimer
     doc.addEventListener('selectionchange', () => {
+      if (editing) return
       clearTimeout(selTimer)
       selTimer = setTimeout(() => {
         const sel = doc.getSelection()
@@ -196,13 +197,80 @@ export async function createEpubEngine({ host, file, settings, initialLocator, o
     doc.addEventListener('click', ev => {
       if (ev.target.closest?.('a[href]')) return
       const sel = doc.getSelection()
-      if (sel && !sel.isCollapsed) return
+      if (sel && !sel.isCollapsed && !editing) return
       const fr = doc.defaultView.frameElement.getBoundingClientRect()
       const x = ev.clientX + fr.left
       setTimeout(() => { if (Date.now() - lastAnnClick > 300) onTap?.(x / window.innerWidth) }, 0)
     })
     doc.addEventListener('keydown', ev => host.dispatchEvent(new KeyboardEvent('keydown', ev)))
   })
+
+  // ---------- Ajustar un subrayado con dos manejadores ----------
+  let editing = null
+  const caretIn = (doc, x, y) => {
+    const cr = doc.caretRangeFromPoint?.(x, y)
+    if (cr && cr.startContainer.nodeType === 3) return { node: cr.startContainer, offset: cr.startOffset }
+    const cp = doc.caretPositionFromPoint?.(x, y)
+    if (cp && cp.offsetNode?.nodeType === 3) return { node: cp.offsetNode, offset: cp.offset }
+    return null
+  }
+  function beginEdit(ann) {
+    const cfi = ann.locator?.cfi
+    if (!cfi) return null
+    let resolved
+    try { resolved = view.resolveCFI(cfi) } catch { return null }
+    const doc = docs.get(resolved.index)
+    if (!doc) return null
+    let range
+    try { range = resolved.anchor(doc) } catch { return null }
+    if (!range) return null
+    editing = { ann, doc, index: resolved.index, a: { node: range.startContainer, offset: range.startOffset }, b: { node: range.endContainer, offset: range.endOffset } }
+    view.deleteAnnotation({ value: cfi }).catch(() => {})
+    const apply = () => doc.getSelection().setBaseAndExtent(editing.a.node, editing.a.offset, editing.b.node, editing.b.offset)
+    apply()
+    const frame = () => doc.defaultView.frameElement.getBoundingClientRect()
+    return {
+      ends() {
+        const sel = doc.getSelection()
+        if (!sel?.rangeCount) return null
+        const rs = Array.from(sel.getRangeAt(0).getClientRects()).filter(r => r.width > 1 && r.height > 1)
+        if (!rs.length) return null
+        const fr = frame(), s0 = rs[0], s1 = rs[rs.length - 1]
+        return { start: { x: s0.left + fr.left, top: s0.top + fr.top, bottom: s0.bottom + fr.top }, end: { x: s1.right + fr.left, top: s1.top + fr.top, bottom: s1.bottom + fr.top } }
+      },
+      move(which, X, Y) {
+        const fr = frame()
+        const pos = caretIn(doc, X - fr.left, Y - fr.top)
+        if (!pos) return which
+        editing[which === 'start' ? 'a' : 'b'] = pos
+        const r = doc.createRange()
+        r.setStart(editing.a.node, editing.a.offset)
+        r.setEnd(editing.b.node, editing.b.offset)
+        if (r.collapsed && !(editing.a.node === editing.b.node && editing.a.offset <= editing.b.offset)) {
+          [editing.a, editing.b] = [editing.b, editing.a]
+          which = which === 'start' ? 'end' : 'start'
+        }
+        apply()
+        return which
+      },
+      finish() {
+        const sel = doc.getSelection()
+        const range = sel?.rangeCount ? sel.getRangeAt(0) : null
+        const text = sel?.toString().replace(/\s+/g, ' ').trim()
+        const out = range && text ? { text, locator: { cfi: view.getCFI(editing.index, range) }, fraction: ann.fraction ?? current?.fraction ?? 0, label: ann.label || current?.label || '' } : null
+        byValue.delete(cfi)
+        sel?.removeAllRanges()
+        editing = null
+        if (!out) { byValue.set(cfi, ann); view.addAnnotation({ value: cfi }).catch(() => {}) }
+        return out
+      },
+      cancel() {
+        doc.getSelection()?.removeAllRanges()
+        editing = null
+        view.addAnnotation({ value: cfi }).catch(() => {})
+      },
+    }
+  }
 
   // ---------- Posición ----------
   // El paginador informa qué parte del capítulo se ve (size) y dónde estás (fraction): con eso salen
@@ -270,6 +338,7 @@ export async function createEpubEngine({ host, file, settings, initialLocator, o
     format: 'epub',
     toc,
     chapters: uniqueChapters,
+    beginEdit,
     describe: f => `${Math.round(f * 100)} %`,
     goTo: t => typeof t === 'string' ? view.goTo(t)
       : t?.cfi ? view.goTo(t.cfi)

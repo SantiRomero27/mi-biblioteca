@@ -645,3 +645,32 @@ button { background: none; border: 0; padding: 0; cursor: pointer; }
 .ptr.is-spinning .ptr-ic { animation: spin .8s linear infinite; display: grid; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-color-scheme: dark) { .ptr { color: #8cc7d6; } }
+
+/* ---------- Ajustar subrayado ---------- */
+.hl.is-editing { display: none; }
+.sel-handle {
+  position: fixed; left: 0; top: 0; z-index: 35; width: 44px; height: 44px; margin: -6px 0 0 -22px;
+  touch-action: none; cursor: grab; display: grid; place-items: start center;
+}
+.sel-handle[hidden] { display: none; }
+.sel-handle::before { /* palito que marca el extremo exacto */
+  content: ''; position: absolute; left: 21px; top: -22px; width: 2px; height: 26px; background: var(--ink); border-radius: 1px;
+}
+.sel-handle i {
+  margin-top: 4px; width: 22px; height: 22px; border-radius: 50%; background: var(--ink);
+  box-shadow: 0 0 0 3px #fff, 0 4px 10px rgba(0,0,0,.3); transition: transform .12s ease;
+}
+.reader[data-theme="oscuro"] .sel-handle i, .reader[data-theme="noche"] .sel-handle i { background: var(--accent); box-shadow: 0 0 0 3px #1e2124, 0 4px 10px rgba(0,0,0,.5); }
+.reader[data-theme="oscuro"] .sel-handle::before, .reader[data-theme="noche"] .sel-handle::before { background: var(--accent); }
+.sel-handle.is-dragging i { transform: scale(1.25); }
+.sel-handle.is-dragging { cursor: grabbing; }
+.adjust-bar {
+  position: absolute; left: 50%; bottom: calc(150px + var(--sab)); transform: translateX(-50%); z-index: 34;
+  display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 16px; border-radius: 999px;
+  background: #22292c; color: #f1ede6; box-shadow: 0 10px 30px rgba(0,0,0,.3); white-space: nowrap;
+  animation: pop-in .2s cubic-bezier(.2,.9,.3,1.2);
+}
+.adjust-bar span { font-size: 13px; opacity: .8; margin-right: 4px; }
+.adjust-bar .btn-text { color: #c6cdd0; }
+.adjust-bar .btn-filled { background: var(--accent); color: var(--accent-ink); padding: 8px 16px; }
+.reader.chrome-hidden .adjust-bar { bottom: calc(24px + var(--sab)); }

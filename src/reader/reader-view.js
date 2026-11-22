@@ -124,6 +124,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     onZoom: z => update({ pdfZoom: z }),
     onLoading: f => { const bar = $('.rd-loading-bar span', el); if (bar) bar.style.width = `${Math.round(f * 100)}%` },
     onTap: x => {
+      if (adjusting) return adjusting.finish()
       if (!popEl.hidden) return hidePop()
       if (el.classList.contains('panel-open') || el.classList.contains('settings-open')) return closeOverlays()
       if (engine?.format === 'epub' && settings.flow === 'paginated') {
@@ -536,6 +537,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
       ${useColors() ? `<div class="pop-row">${colorButtons(a.color)}</div>` : ''}
       <div class="pop-row">
         <button class="pop-btn" data-act="note">${icon('notes')}<span>${a.note ? 'Editar' : 'Nota'}</span></button>
+        <button class="pop-btn" data-act="adjust">${icon('fitWidth')}<span>Ajustar</span></button>
         <button class="pop-btn" data-act="copy">${icon('copy')}<span>Copiar</span></button>
         <button class="pop-btn" data-act="del">${icon('delete')}<span>Borrar</span></button>
       </div>`
@@ -546,7 +548,79 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     $('[data-act=note]', popEl).onclick = () => { hidePop(); editNote(id) }
     $('[data-act=copy]', popEl).onclick = () => copyText(a.text)
     $('[data-act=del]', popEl).onclick = () => { hidePop(); deleteAnn(id, true) }
+    $('[data-act=adjust]', popEl).onclick = () => { hidePop(); startAdjust(id) }
     placePop(rect)
+  }
+
+  // ---------- Ajustar un subrayado: dos manejadores para ampliar o reducir ----------
+  let adjusting = null
+  function startAdjust(id) {
+    const a = annotations.find(x => x.id === id)
+    if (!a) return
+    const ctrl = engine.beginEdit?.(a)
+    if (!ctrl) return toast('No se puede ajustar este subrayado desde acá')
+    const hStart = h(`<div class="sel-handle is-start" aria-label="Inicio del subrayado"><i></i></div>`)
+    const hEnd = h(`<div class="sel-handle is-end" aria-label="Final del subrayado"><i></i></div>`)
+    const bar = h(`
+      <div class="adjust-bar">
+        <span>Arrastrá los extremos</span>
+        <button class="btn-text" data-act="cancel">Cancelar</button>
+        <button class="btn-filled" data-act="done">Listo</button>
+      </div>`)
+    el.append(hStart, hEnd, bar)
+    el.classList.add('is-adjusting')
+    let raf = 0
+    const place = () => {
+      const e = ctrl.ends()
+      if (e) {
+        hStart.style.transform = `translate(${e.start.x}px, ${e.start.bottom}px)`
+        hEnd.style.transform = `translate(${e.end.x}px, ${e.end.bottom}px)`
+        hStart.hidden = hEnd.hidden = false
+      }
+      raf = requestAnimationFrame(place)
+    }
+    place()
+    const drag = (handle, which) => {
+      handle.addEventListener('pointerdown', ev => {
+        ev.preventDefault(); ev.stopPropagation()
+        handle.setPointerCapture(ev.pointerId)
+        handle.classList.add('is-dragging')
+        let w = which
+        // el punto de control queda sobre la línea de texto, no debajo del dedo
+        const lift = ev.pointerType === 'touch' ? 26 : 12
+        const move = e2 => { w = ctrl.move(w, e2.clientX, e2.clientY - lift) }
+        const up = () => {
+          handle.classList.remove('is-dragging')
+          handle.removeEventListener('pointermove', move)
+          handle.removeEventListener('pointerup', up)
+          handle.removeEventListener('pointercancel', up)
+          buzz()
+        }
+        handle.addEventListener('pointermove', move)
+        handle.addEventListener('pointerup', up)
+        handle.addEventListener('pointercancel', up)
+      })
+    }
+    drag(hStart, 'start')
+    drag(hEnd, 'end')
+    const cleanup = () => {
+      cancelAnimationFrame(raf)
+      hStart.remove(); hEnd.remove(); bar.remove()
+      el.classList.remove('is-adjusting')
+      adjusting = null
+    }
+    const finish = async () => {
+      const info = ctrl.finish()
+      cleanup()
+      if (!info?.text) { engine.upsertHighlight(a); return toast('No se pudo ajustar: seleccioná al menos una palabra') }
+      const next = await updateAnnotation(id, { text: info.text, locator: info.locator, fraction: info.fraction ?? a.fraction, label: info.label || a.label })
+      replaceAnn(next)
+      toast('Subrayado ajustado')
+    }
+    const cancel = () => { ctrl.cancel(); cleanup(); engine.upsertHighlight(a) }
+    $('[data-act=done]', bar).onclick = finish
+    $('[data-act=cancel]', bar).onclick = cancel
+    adjusting = { finish, cancel }
   }
 
   function hidePop() { popEl.hidden = true; pendingSel = null; popMode = null }
@@ -723,7 +797,8 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     if (e.target.closest?.('input, textarea, select')) return
     if (e.key === 'ArrowRight' || e.key === 'PageDown' || (e.key === ' ' && engine.format === 'epub')) { e.preventDefault(); engine.next() }
     else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); engine.prev() }
-    else if (e.key === 'Escape') { hidePop(); closeOverlays() }
+    else if (e.key === 'Escape') { if (adjusting) return adjusting.cancel(); hidePop(); closeOverlays() }
+    else if (e.key === 'Enter' && adjusting) { e.preventDefault(); adjusting.finish() }
     else if (e.key === '+' || e.key === '=') { e.preventDefault(); stepSize(1) }
     else if (e.key === '-') { e.preventDefault(); stepSize(-1) }
   }
