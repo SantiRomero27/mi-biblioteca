@@ -578,6 +578,54 @@ export async function createPdfEngine(opts) {
     r.setEnd(b.node, b.offset)
     return !r.collapsed || (a.node === b.node && a.offset <= b.offset)
   }
+  // Los rectángulos guardados son aproximados (la capa de texto de pdf.js no calza al píxel
+  // con el escaneo), así que el punto inicial/final puede caer a mitad de una letra.
+  // Se corrige buscando el texto del subrayado alrededor de esa posición; si no aparece
+  // (OCR distinto, importado de ReadEra), al menos se completan las palabras de los extremos.
+  function fitToText(a, b, text, vpA, vpB) {
+    const i0 = vps.indexOf(vpA), i1 = vps.indexOf(vpB)
+    const layers = (i0 >= 0 && i1 >= i0 ? vps.slice(i0, i1 + 1) : [vpA, vpB]).map(v => v.text).filter(Boolean)
+    const chars = []
+    for (const layer of new Set(layers)) {
+      const w = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT)
+      for (let n = w.nextNode(); n; n = w.nextNode()) for (let i = 0; i < n.data.length; i++) chars.push({ node: n, i, ch: n.data[i] })
+      chars.push({ node: null, ch: ' ' }) // separador entre páginas
+    }
+    const idx = pos => {
+      let k = chars.findIndex(c => c.node === pos.node && c.i === pos.offset)
+      if (k < 0) { // al final del nodo
+        for (let j = chars.length - 1; j >= 0; j--) if (chars[j].node === pos.node) { k = j + 1; break }
+      }
+      return k < 0 ? null : k
+    }
+    const ia = idx(a), ib = idx(b)
+    if (ia == null || ib == null) return { a, b }
+    const at = k => ({ node: chars[k].node, offset: chars[k].i })
+    const after = k => ({ node: chars[k].node, offset: chars[k].i + 1 })
+    const isSpace = c => !c.node || /\s/.test(c.ch)
+    // 1) buscar el texto exacto (sin espacios ni guiones de corte) y quedarse con la aparición más cercana
+    const strip = t => (t || '').replace(/[\s\u00ad]/g, '')
+    const needle = strip(text)
+    if (needle.length >= 2) {
+      const sig = [], map = []
+      chars.forEach((c, k) => { if (!isSpace(c) && c.ch !== '\u00ad') { sig.push(c.ch); map.push(k) } })
+      const hay = sig.join('')
+      let best = null
+      for (let from = hay.indexOf(needle); from >= 0; from = hay.indexOf(needle, from + 1)) {
+        const d = Math.abs(map[from] - ia)
+        if (!best || d < best.d) best = { d, s: map[from], e: map[from + needle.length - 1] }
+      }
+      if (best && best.d < 400) return { a: at(best.s), b: after(best.e) }
+    }
+    // 2) completar las palabras cortadas en los extremos
+    let s0 = Math.min(ia, chars.length - 1), e0 = Math.max(ib - 1, s0)
+    while (s0 < chars.length && isSpace(chars[s0])) s0++
+    while (s0 > 0 && !isSpace(chars[s0 - 1])) s0--
+    while (e0 > s0 && isSpace(chars[e0])) e0--
+    while (e0 + 1 < chars.length && !isSpace(chars[e0 + 1])) e0++
+    if (!chars[s0]?.node || !chars[e0]?.node) return { a, b }
+    return { a: at(s0), b: after(e0) }
+  }
   function applyEditSel() {
     const { a, b } = editing
     window.getSelection().setBaseAndExtent(a.node, a.offset, b.node, b.offset)
@@ -590,8 +638,10 @@ export async function createPdfEngine(opts) {
     if (!vpA || !vpB || vpA.state !== 'done' || vpB.state !== 'done') return null
     const pA = sheetToClient(vpA, first.x + Math.min(0.004, first.w / 4), first.y + first.h / 2)
     const pB = sheetToClient(vpB, last.x + last.w - Math.min(0.004, last.w / 4), last.y + last.h / 2)
-    const a = caretAt(pA.x, pA.y, vpA.text), b = caretAt(pB.x, pB.y, vpB.text)
+    let a = caretAt(pA.x, pA.y, vpA.text), b = caretAt(pB.x, pB.y, vpB.text)
     if (!a || !b) return null
+    if (!before(a, b)) [a, b] = [b, a]
+    ;({ a, b } = fitToText(a, b, ann.text, vpA, vpB))
     editing = { ann, a, b }
     scroller.querySelectorAll(`.hl[data-id="${ann.id}"]`).forEach(d => d.classList.add('is-editing'))
     scroller.classList.add('is-editing')
