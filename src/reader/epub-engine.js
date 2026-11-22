@@ -77,7 +77,7 @@ async function buildCSS(s) {
     a:link, a:visited { color: ${s.theme === 'oscuro' || s.theme === 'noche' ? '#8cc7d6' : '#1d6577'} !important; }
     img, svg, video { max-width: 100%; ${s.theme === 'noche' ? 'opacity: .85;' : ''} }
     pre { white-space: pre-wrap !important; }
-    ::selection { background: rgba(232, 163, 61, .38); }
+    ::selection { background: ${s.theme === 'oscuro' || s.theme === 'noche' ? 'rgba(255,255,255,.22)' : 'rgba(0,0,0,.14)'}; }
     aside[epub|type~="footnote"], aside[epub|type~="endnote"], aside[epub|type~="rearnote"] { display: none; }
   `
 }
@@ -109,13 +109,31 @@ export async function createEpubEngine({ host, file, settings, initialLocator, o
       } catch { /* cfi inválido */ }
     }
   })
+  // Un solo dibujo por subrayado (fondo + línea): dos llamadas a draw se pisarían entre sí
+  let hlStyle = settings.hlStyle || 'gris'
+  let dark = settings.theme === 'oscuro' || settings.theme === 'noche'
+  const drawMark = (rects, { fill, line, width = 2, faint = false }) => {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+    if (fill) g.append(Overlayer.highlight(rects, { color: fill }))
+    if (line) {
+      const u = Overlayer.underline(rects, { color: line, width })
+      if (faint) u.setAttribute('opacity', '.6')
+      g.append(u)
+    }
+    return g
+  }
   view.addEventListener('draw-annotation', e => {
     const { draw, annotation } = e.detail
     const ann = byValue.get(annotation.value)
-    const color = COLORS[ann?.color] ?? COLORS.amarillo
-    draw(Overlayer.highlight, { color })
-    if (ann?.note) draw(Overlayer.underline, { color, width: 2 })
+    const neutral = dark ? '#ffffff' : '#000000'
+    if (hlStyle === 'linea') draw(drawMark, { line: dark ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.5)', width: ann?.note ? 3 : 2 })
+    else if (hlStyle === 'gris') draw(drawMark, { fill: neutral, line: ann?.note ? (dark ? 'rgba(255,255,255,.5)' : 'rgba(0,0,0,.45)') : null, width: 1.5 })
+    else {
+      const color = COLORS[ann?.color] ?? COLORS.gris
+      draw(drawMark, { fill: color, line: ann?.note ? color : null, width: 2 })
+    }
   })
+  const redrawAll = () => { for (const a of byValue.values()) view.addAnnotation({ value: a.locator.cfi }).catch(() => {}) }
   view.addEventListener('show-annotation', e => {
     const ann = byValue.get(e.detail.value)
     if (!ann) return
@@ -201,6 +219,9 @@ export async function createEpubEngine({ host, file, settings, initialLocator, o
   // ---------- Ajustes ----------
   async function applySettings(s) {
     host.dataset.theme = s.theme
+    host.dataset.hl = s.hlStyle || 'gris'
+    const nd = s.theme === 'oscuro' || s.theme === 'noche'
+    if ((s.hlStyle || 'gris') !== hlStyle || nd !== dark) { hlStyle = s.hlStyle || 'gris'; dark = nd; redrawAll() }
     const r = view.renderer
     r.setAttribute('flow', s.flow)
     r.setAttribute('max-inline-size', `${LINE_WIDTH[s.lineWidth] ?? 680}px`)

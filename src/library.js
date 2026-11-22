@@ -3,7 +3,7 @@ import { $, $$, h, esc, toast, confirmDialog } from './ui/dom.js'
 import { icon } from './ui/icons.js'
 import { changes, kv } from './db.js'
 import {
-  listBooks, importFile, updateBook, deleteBook, removeLocalFile, listAnnotations, formatSize, COLORS,
+  listBooks, importFile, updateBook, deleteBook, removeLocalFile, listAnnotations, formatSize, COLORS, hlListColor,
 } from './books.js'
 import { platform } from './platform.js'
 import { isNative, scanFolders, listFolders, pickFolder, removeFolder } from './native.js'
@@ -451,6 +451,8 @@ export async function renderLibrary(root, { openBook }) {
     })
   }
 
+  let hlStyle = 'gris'
+  import('./settings.js').then(m => m.loadSettings()).then(st => { hlStyle = st.hlStyle || 'gris' })
   function renderQuotes(books, anns) {
     const byId = new Map(books.map(b => [b.id, b]))
     let quotes = anns.filter(a => a.kind === 'highlight' && byId.has(a.bookId))
@@ -470,7 +472,7 @@ export async function renderLibrary(root, { openBook }) {
         <section class="quote-group">
           <h2 class="quote-book">${esc(b.title)}<small>${esc(b.author)}</small></h2>
           <ul class="ann-list">${qs.map(a => `
-            <li class="ann" style="--c:${COLORS[a.color] ?? COLORS.amarillo}">
+            <li class="ann" style="--c:${hlListColor(a, hlStyle)}">
               <button class="ann-go" data-book="${bookId}" data-ann="${a.id}">
                 <span class="ann-meta">${esc(a.label || '')}${a.label ? ' · ' : ''}${new Date(a.createdAt).toLocaleDateString('es-AR')}</span>
                 <span class="ann-text">${esc(a.text)}</span>

@@ -247,7 +247,7 @@ export async function addAnnotation(data) {
   const ann = {
     id: crypto.randomUUID(),
     kind: 'highlight',
-    color: 'amarillo',
+    color: 'gris',
     text: '',
     note: '',
     label: '',
@@ -273,6 +273,7 @@ export async function updateAnnotation(id, patch) {
 export const removeAnnotation = id => updateAnnotation(id, { deleted: true })
 
 export const COLORS = {
+  gris: '#b3b3b3',
   amarillo: '#f5c84c',
   verde: '#8fd17a',
   celeste: '#7cc4ef',
@@ -284,3 +285,6 @@ export const formatSize = bytes => {
   const mb = bytes / (1024 * 1024)
   return mb >= 1 ? `${mb.toFixed(1).replace('.', ',')} MB` : `${Math.round(bytes / 1024)} KB`
 }
+
+// Color con el que se muestra un subrayado en listas y barras, según el estilo elegido
+export const hlListColor = (ann, style) => style === 'color' ? (COLORS[ann.color] ?? COLORS.gris) : '#9c9c9c'

@@ -6,7 +6,7 @@ import { changes, kv } from '../db.js'
 import { setOrientation } from '../native.js'
 import {
   getBook, getFile, loadFileBlob, updateBook, importFile, listAnnotations, addAnnotation,
-  updateAnnotation, removeAnnotation, COLORS,
+  updateAnnotation, removeAnnotation, COLORS, hlListColor,
 } from '../books.js'
 import { loadSettings, saveSettings, THEMES, DEFAULT_SETTINGS, listCustomFonts, addCustomFont } from '../settings.js'
 import { createProgressTrack } from './progress-track.js'
@@ -381,7 +381,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
       return
     }
     body.innerHTML = `<ul class="ann-list">${list.map(a => `
-      <li class="ann" data-id="${a.id}" style="--c:${COLORS[a.color] ?? COLORS.amarillo}">
+      <li class="ann" data-id="${a.id}" style="--c:${hlListColor(a, settings.hlStyle)}">
         <button class="ann-go">
           <span class="ann-meta">${esc(a.label || '')}${a.label ? ' · ' : ''}${book.format === 'pdf' && a.locator?.page ? `pág. ${a.locator.page}` : `${Math.round((a.fraction ?? 0) * 100)} %`}</span>
           ${a.text ? `<span class="ann-text">${esc(a.text)}</span>` : ''}
@@ -457,23 +457,28 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
   const colorButtons = active => Object.entries(COLORS).map(([k, c]) =>
     `<button class="dot ${k === active ? 'is-active' : ''}" data-color="${k}" style="--c:${c}" title="${k}"></button>`).join('')
 
+  const useColors = () => settings.hlStyle === 'color'
+  const defaultColor = () => useColors() ? 'amarillo' : 'gris'
+
   function showSelectionPop(sel) {
     pendingSel = sel
     popMode = 'selection'
     popEl.innerHTML = `
-      <div class="pop-row">${colorButtons()}</div>
+      ${useColors() ? `<div class="pop-row">${colorButtons()}</div>` : ''}
       <div class="pop-row">
+        ${useColors() ? '' : `<button class="pop-btn is-main" data-act="mark">${icon('highlighter')}<span>Subrayar</span></button>`}
         <button class="pop-btn" data-act="note">${icon('notes')}<span>Nota</span></button>
         <button class="pop-btn" data-act="copy">${icon('copy')}<span>Copiar</span></button>
       </div>`
     $$('.dot', popEl).forEach(d => d.onclick = () => createHighlight(d.dataset.color))
+    $('[data-act=mark]', popEl)?.addEventListener('click', () => createHighlight(defaultColor()))
     $('[data-act=note]', popEl).onclick = async () => {
       const s = pendingSel
       hidePop()
       const note = await promptNote({ title: 'Nueva nota', quote: s.text })
       if (note === null) return
       pendingSel = s
-      createHighlight('amarillo', note)
+      createHighlight(defaultColor(), note)
     }
     $('[data-act=copy]', popEl).onclick = () => copyText(pendingSel.text)
     placePop(sel.rect)
@@ -500,7 +505,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     popMode = 'annotation'
     popEl.innerHTML = `
       ${a.note ? `<p class="pop-note">${esc(a.note)}</p>` : ''}
-      <div class="pop-row">${colorButtons(a.color)}</div>
+      ${useColors() ? `<div class="pop-row">${colorButtons(a.color)}</div>` : ''}
       <div class="pop-row">
         <button class="pop-btn" data-act="note">${icon('notes')}<span>${a.note ? 'Editar' : 'Nota'}</span></button>
         <button class="pop-btn" data-act="copy">${icon('copy')}<span>Copiar</span></button>
@@ -636,6 +641,10 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     `
     box.insertAdjacentHTML('beforeend', `
       <div class="set-group">
+        <div class="set-label">Subrayado</div>
+        ${seg('hlStyle', [['gris', 'Gris'], ['linea', 'Línea'], ['color', 'Colores']])}
+      </div>
+      <div class="set-group">
         <div class="set-label">Orientación de pantalla</div>
         ${seg('orientation', [['auto', 'Automática'], ['vertical', 'Vertical'], ['horizontal', 'Horizontal']])}
       </div>`)
@@ -677,6 +686,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     await saveSettings(settings)
     await engine.applySettings(settings)
     paintTools()
+    if ('hlStyle' in patch && el.classList.contains('panel-open')) renderPanel()
     if (el.classList.contains('settings-open')) renderSettings()
   }
 

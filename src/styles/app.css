@@ -347,6 +347,8 @@ button { background: none; border: 0; padding: 0; cursor: pointer; }
 .rd-stage { position: absolute; inset: 0; }
 .epub-view { display: block; width: 100%; height: 100%; --overlayer-highlight-opacity: .45; --overlayer-highlight-blend-mode: multiply; }
 .reader[data-theme="oscuro"] .epub-view, .reader[data-theme="noche"] .epub-view { --overlayer-highlight-opacity: .32; --overlayer-highlight-blend-mode: normal; }
+.rd-stage[data-hl="gris"] .epub-view { --overlayer-highlight-opacity: .085; }
+.reader[data-theme="oscuro"] .rd-stage[data-hl="gris"] .epub-view, .reader[data-theme="noche"] .rd-stage[data-hl="gris"] .epub-view { --overlayer-highlight-opacity: .13; }
 
 .rd-top, .rd-bottom {
   position: absolute; left: 0; right: 0; z-index: 10;
@@ -458,17 +460,28 @@ button { background: none; border: 0; padding: 0; cursor: pointer; }
 }
 @keyframes shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
 
-.hl { position: absolute; mix-blend-mode: multiply; opacity: .6; border-radius: 2px; }
+/* Subrayados: gris (por defecto, sin color que distraiga y sin bajar el contraste del texto), línea o colores */
+.hl { position: absolute; border-radius: 2px; }
+.hl.hl-gris { background: #000; opacity: .1; mix-blend-mode: multiply; }
+/* selección neutra (sin el azul del sistema) */
+.pdf-scroll .textLayer ::selection { background: rgba(0,0,0,.16); color: transparent; }
+.reader[data-theme="oscuro"] .pdf-scroll .textLayer ::selection, .reader[data-theme="noche"] .pdf-scroll .textLayer ::selection { background: rgba(255,255,255,.22); }
+.hl.hl-linea { background: transparent; border-bottom: 2px solid rgba(0,0,0,.5); border-radius: 0; }
+.hl.hl-color { mix-blend-mode: multiply; opacity: .6; }
 .hl.is-new { animation: hl-in .45s ease-out; }
 @keyframes hl-in { from { opacity: 0; transform: scaleX(.6); transform-origin: left; } }
-.hl.has-note { box-shadow: inset 0 -2px 0 rgba(0,0,0,.35); }
+.hl.has-note.hl-gris { opacity: .14; }
+.hl.has-note.hl-linea { border-bottom-width: 3px; }
+.hl.has-note.hl-color { box-shadow: inset 0 -2px 0 rgba(0,0,0,.35); }
 .reader[data-theme="sepia"] .pdf-page { background: #f3e7cf; }
 .reader[data-theme="sepia"] .pdf-canvas canvas { mix-blend-mode: multiply; }
 .reader[data-theme="oscuro"] .pdf-page,
 .reader[data-theme="noche"] .pdf-page { background: #111; }
 .reader[data-theme="oscuro"] .pdf-canvas canvas { filter: invert(.88) hue-rotate(180deg) brightness(1.05); }
 .reader[data-theme="noche"] .pdf-canvas canvas { filter: invert(.94) hue-rotate(180deg) brightness(.85); }
-.reader[data-theme="oscuro"] .hl, .reader[data-theme="noche"] .hl { mix-blend-mode: normal; opacity: .32; }
+.reader[data-theme="oscuro"] .hl.hl-color, .reader[data-theme="noche"] .hl.hl-color { mix-blend-mode: normal; opacity: .32; }
+.reader[data-theme="oscuro"] .hl.hl-gris, .reader[data-theme="noche"] .hl.hl-gris { background: #fff; mix-blend-mode: normal; opacity: .13; }
+.reader[data-theme="oscuro"] .hl.hl-linea, .reader[data-theme="noche"] .hl.hl-linea { border-bottom-color: rgba(255,255,255,.55); }
 .reader[data-theme="oscuro"] .pdf-page-num, .reader[data-theme="noche"] .pdf-page-num { color: rgba(255,255,255,.3); }
 
 /* --- Pantalla de apertura --- */
@@ -573,11 +586,12 @@ button { background: none; border: 0; padding: 0; cursor: pointer; }
 .sel-pop[hidden] { display: none; }
 .pop-row { display: flex; align-items: center; justify-content: center; gap: 6px; }
 .pop-row + .pop-row { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,.1); }
-.dot { width: 30px; height: 30px; border-radius: 50%; background: var(--c); margin: 2px 4px; box-shadow: inset 0 0 0 2px rgba(0,0,0,.15); }
+.dot { width: 30px; height: 30px; border-radius: 50%; background: var(--c); flex: none; margin: 2px 4px; box-shadow: inset 0 0 0 2px rgba(0,0,0,.15); }
 .dot.is-active { box-shadow: 0 0 0 2px #22292c, 0 0 0 4px #f1ede6; }
 .pop-btn { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 12px; border-radius: 8px; font-size: 11.5px; min-width: 62px; }
 .pop-btn:hover { background: rgba(255,255,255,.08); }
 .pop-btn .ic { width: 21px; height: 21px; }
+.pop-btn.is-main { color: var(--accent); }
 .pop-note { margin: 2px 6px 8px; font-size: 13.5px; line-height: 1.4; font-style: italic; color: #d9d3c8; max-height: 120px; overflow: auto; }
 
 

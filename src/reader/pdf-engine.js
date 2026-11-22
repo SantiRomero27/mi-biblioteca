@@ -57,6 +57,7 @@ export async function createPdfEngine(opts) {
   let fitMode = settings.pdfFit || 'auto'      // auto | ancho | pantalla
   let lockX = !!settings.pdfLockX              // bloquear el movimiento lateral
   let rotation = opts.rotation || 0            // 0 | 90 | 180 | 270 (por libro)
+  let hlStyle = settings.hlStyle || 'gris'     // gris | linea | color
   let vps = []           // páginas visibles
   const annotations = new Map()
   const pageCache = new Map()
@@ -329,10 +330,11 @@ export async function createPdfEngine(opts) {
       for (const r of ann.locator?.rects ?? []) {
         if (r.p !== vp.real) continue
         const d = document.createElement('div')
-        d.className = 'hl'
+        d.className = `hl hl-${hlStyle}`
         d.dataset.id = ann.id
         if (ann.note) d.classList.add('has-note')
-        Object.assign(d.style, { left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, height: `${r.h * 100}%`, background: COLORS[ann.color] ?? COLORS.amarillo })
+        Object.assign(d.style, { left: `${r.x * 100}%`, top: `${r.y * 100}%`, width: `${r.w * 100}%`, height: `${r.h * 100}%` })
+        if (hlStyle === 'color') d.style.background = COLORS[ann.color] ?? COLORS.gris
         vp.hl.append(d)
       }
     }
@@ -528,6 +530,7 @@ export async function createPdfEngine(opts) {
   // ---------- Ajustes ----------
   function applySettings(s) {
     host.dataset.theme = s.theme
+    if ((s.hlStyle || 'gris') !== hlStyle) { hlStyle = s.hlStyle || 'gris'; vps.forEach(drawPage) }
     const nf = s.pdfFlow || 'continuo', ns = s.pdfSplit || 'auto'
     if (nf !== flow || ns !== splitMode) {
       const { loc } = currentLocator()

@@ -3,6 +3,7 @@ import { kv } from './db.js'
 
 export const DEFAULT_SETTINGS = {
   theme: 'claro',          // claro | sepia | oscuro | noche
+  hlStyle: 'gris',         // gris | linea | color — cómo se ven los subrayados
   font: 'archivo',         // archivo | original | custom:<nombre>
   fontSize: 19,            // px (EPUB)
   weight: 400,             // eje wght de Archivo
