@@ -34,6 +34,7 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
       <footer class="rd-bottom">
         <div class="rd-progress-row">
           <span class="rd-label"></span>
+          <span class="rd-sec" hidden></span>
           <span class="rd-page"></span>
         </div>
         <div class="rd-track"></div>
@@ -189,6 +190,15 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
     $('.rd-label', el).textContent = position.label || ''
     $('.rd-section', el).textContent = position.label || ''
     $('.rd-page', el).textContent = position.pageLabel || ''
+    // en qué página de la sección estás y cuántas tiene
+    const sec = position.section
+    const secEl = $('.rd-sec', el)
+    if (sec && sec.total > 0) {
+      secEl.hidden = false
+      secEl.innerHTML = `<span class="rd-sec-bar"><i style="width:${Math.round((sec.current / sec.total) * 100)}%"></i></span>${sec.current} de ${sec.total}${sec.minutes ? ` · ${sec.minutes} min` : ''}`
+      secEl.title = `Página ${sec.current} de ${sec.total} de esta sección${sec.minutes ? ` · faltan unos ${sec.minutes} minutos` : ''}`
+      $('.rd-section', el).textContent = `${position.label || ''}${position.label ? ' · ' : ''}${sec.total - sec.current === 0 ? 'última página' : `faltan ${sec.total - sec.current} pág.`}`
+    } else secEl.hidden = true
     refreshBookmarkBtn()
     if (panelTab === 'toc' && el.classList.contains('panel-open')) markCurrentToc()
   }
@@ -359,8 +369,12 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
       }
       const tree = (items, level) => items.map(it => `
         <li>
-          <button class="toc-item" style="--lvl:${level}" ${it.target ? '' : 'disabled'} data-target='${esc(JSON.stringify(it.target))}'>
-            <span>${esc(it.label)}</span>${it.page ? `<span class="toc-page">${it.page}</span>` : ''}
+          <button class="toc-item" style="--lvl:${level}" ${it.target ? '' : 'disabled'} data-label="${esc(it.label)}" data-target='${esc(JSON.stringify(it.target))}'>
+            <span class="toc-label">${esc(it.label)}</span>${(() => {
+              const info = engine.tocPages?.(it)
+              if (info) return `<span class="toc-page"><b>${info.page}</b><small>${info.pages} ${info.pages === 1 ? 'pág.' : 'págs.'}</small></span>`
+              return it.page ? `<span class="toc-page"><b>${it.page}</b></span>` : ''
+            })()}
           </button>
           ${it.subitems?.length ? `<ul>${tree(it.subitems, level + 1)}</ul>` : ''}
         </li>`).join('')
@@ -402,8 +416,22 @@ export async function renderReader(root, bookId, { onExit, annId = null }) {
   }
 
   function markCurrentToc() {
+    const sec = position.section
+    if (sec?.label) {
+      let found = false
+      $$('.toc-item', el).forEach(b => {
+        const on = !found && (b.dataset.label || '').trim() === sec.label.trim()
+        if (on) found = true
+        b.classList.toggle('is-current', on)
+        if (on && sec.total) {
+          b.querySelector('.toc-here')?.remove()
+          b.querySelector('.toc-label').insertAdjacentHTML('beforeend', `<span class="toc-here">Estás en la página ${sec.current} de ${sec.total}</span>`)
+        } else b.querySelector('.toc-here')?.remove()
+      })
+      if (found) return
+    }
     const label = position.label
-    $$('.toc-item', el).forEach(b => b.classList.toggle('is-current', !!label && b.textContent.trim().startsWith(label.trim())))
+    $$('.toc-item', el).forEach(b => b.classList.toggle('is-current', !!label && (b.dataset.label || '').trim() === label.trim()))
   }
 
   // ---------- Marcadores ----------

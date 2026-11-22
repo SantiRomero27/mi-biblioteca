@@ -205,13 +205,24 @@ export async function createEpubEngine({ host, file, settings, initialLocator, o
   })
 
   // ---------- Posición ----------
+  // El paginador informa qué parte del capítulo se ve (size) y dónde estás (fraction): con eso salen
+  // las "páginas" del capítulo tal como se ven en esta pantalla y con esta letra.
+  let secPage = null
+  const hookRenderer = () => view.renderer?.addEventListener('relocate', e => {
+    const { fraction, size } = e.detail ?? {}
+    if (!(size > 0) || size >= 1) { secPage = { current: 1, total: 1 }; return }
+    const total = Math.max(1, Math.round(1 / size))
+    secPage = { current: Math.min(total, Math.floor((fraction ?? 0) / size + 0.01) + 1), total }
+  })
+  hookRenderer()
   view.addEventListener('relocate', e => {
-    const { fraction, tocItem, pageItem, cfi } = e.detail
+    const { fraction, tocItem, pageItem, cfi, time } = e.detail
     current = {
       fraction: fraction ?? 0,
       locator: { cfi },
       label: tocItem?.label?.trim() ?? '',
       pageLabel: pageItem?.label ? `pág. ${pageItem.label}` : `${Math.round((fraction ?? 0) * 100)} %`,
+      section: secPage ? { label: tocItem?.label?.trim() ?? '', ...secPage, minutes: time?.section ? Math.max(1, Math.round(time.section)) : null } : null,
     }
     onRelocate?.(current)
   })

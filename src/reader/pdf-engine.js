@@ -236,6 +236,34 @@ export async function createPdfEngine(opts) {
     return label
   }
 
+  // Secciones del índice medidas en páginas visibles (cuentan las mitades si se dividen las hojas)
+  const startIdx = page => vpFor(page, 0)?.idx ?? page - 1
+  function sectionAt(idx) {
+    if (!flat.length || !vps.length) return null
+    let cur = null
+    for (const f of flat) { if (startIdx(f.page) <= idx) cur = f; else break }
+    if (!cur) return null
+    const start = startIdx(cur.page)
+    const next = flat.find(f => startIdx(f.page) > start)
+    const end = next ? startIdx(next.page) : vps.length
+    return { label: cur.label, current: idx - start + 1, total: Math.max(1, end - start), from: start / vps.length, to: end / vps.length }
+  }
+  // Para el índice: en qué página visible empieza cada entrada y cuántas tiene
+  function tocPages(node) {
+    if (!node?.page || !vps.length) return null
+    const start = startIdx(node.page)
+    const next = flat.find(f => startIdx(f.page) > start)
+    const end = next ? startIdx(next.page) : vps.length
+    // si tiene subsecciones, cuenta hasta la próxima entrada de su mismo nivel o superior
+    const me = flat.find(f => f.page === node.page && f.label === node.label)
+    let endAll = vps.length
+    if (me) {
+      const after = flat.slice(flat.indexOf(me) + 1).find(f => f.level <= me.level && startIdx(f.page) > start)
+      if (after) endAll = startIdx(after.page)
+    }
+    return { page: start + 1, pages: Math.max(1, (node.subitems?.length ? endAll : end) - start) }
+  }
+
   const fractionOf = (vpIdx, offset = 0) => vps.length > 1 ? Math.min(1, (vpIdx + offset) / vps.length) : offset
   let relocTimer
   function report() {
@@ -243,7 +271,7 @@ export async function createPdfEngine(opts) {
     relocTimer = setTimeout(() => {
       if (!vps.length) return
       const { loc, vp, offset } = currentLocator()
-      onRelocate?.({ fraction: fractionOf(vp.idx, offset), locator: loc, label: sectionLabel(vp.real), pageLabel: `${vp.idx + 1} de ${vps.length}` })
+      onRelocate?.({ fraction: fractionOf(vp.idx, offset), locator: loc, label: sectionLabel(vp.real), pageLabel: `${vp.idx + 1} de ${vps.length}`, section: sectionAt(vp.idx) })
     }, 100)
   }
   scroller.addEventListener('scroll', report, { passive: true })
@@ -594,6 +622,7 @@ export async function createPdfEngine(opts) {
     get paged() { return horizontal() && zoom <= 1.001 },
     get hasSpreads() { return sizes.some(isSpread) },
     get fit() { return effectiveFit() },
+    tocPages,
     get rotation() { return rotation },
     setRotation,
     describe: f => `pág. ${Math.min(vps.length, Math.floor(f * vps.length) + 1)} de ${vps.length}`,
@@ -605,7 +634,7 @@ export async function createPdfEngine(opts) {
     prev: () => step(-1),
     currentLocator: () => {
       const { loc, vp, offset } = currentLocator()
-      return { locator: loc, fraction: fractionOf(vp.idx, offset), label: sectionLabel(vp.real), pageLabel: `${vp.idx + 1} de ${vps.length}` }
+      return { locator: loc, fraction: fractionOf(vp.idx, offset), label: sectionLabel(vp.real), pageLabel: `${vp.idx + 1} de ${vps.length}`, section: sectionAt(vp.idx) }
     },
     setAnnotations,
     upsertHighlight,

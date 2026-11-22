@@ -6,13 +6,14 @@ import { esc } from '../ui/dom.js'
 export function createProgressTrack(host, { onSeek, onChapter, describe }) {
   host.innerHTML = `
     <div class="trk" role="slider" tabindex="0" aria-label="Progreso de lectura" aria-valuemin="0" aria-valuemax="100">
-      <div class="trk-rail"><div class="trk-fill"></div></div>
+      <div class="trk-rail"><div class="trk-section"></div><div class="trk-fill"></div></div>
       <div class="trk-marks"></div>
       <div class="trk-thumb"></div>
       <div class="trk-tip" hidden></div>
     </div>`
   const trk = host.querySelector('.trk')
   const fill = host.querySelector('.trk-fill')
+  const band = host.querySelector('.trk-section')
   const thumb = host.querySelector('.trk-thumb')
   const marksEl = host.querySelector('.trk-marks')
   const tip = host.querySelector('.trk-tip')
@@ -57,6 +58,13 @@ export function createProgressTrack(host, { onSeek, onChapter, describe }) {
   function markCurrent() {
     const cur = chapterAt(value)
     for (const m of marksEl.children) m.classList.toggle('is-current', chapters[Number(m.dataset.i)] === cur)
+    // franja de la sección actual en la línea
+    if (cur) {
+      const next = chapters.find(c => c.fraction > cur.fraction + 1e-6)
+      band.style.left = pct(cur.fraction)
+      band.style.width = `${((next ? next.fraction : 1) - cur.fraction) * 100}%`
+      band.hidden = false
+    } else band.hidden = true
   }
 
   function showTip(f, label, extra, strong = false) {
